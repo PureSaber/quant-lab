@@ -1,0 +1,8 @@
+db_path: state/experiments.db
+projects:
+- name: a-share-multifactor
+  outputs: ../a-share-multifactor/outputs
+- name: sklearn-stock-trend
+  outputs: ../sklearn-stock-trend/outputs
+- name: future_spread
+  outputs: ../future_spread_analysis-team-framework/output

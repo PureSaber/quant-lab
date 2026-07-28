@@ -1,0 +1,10 @@
+# quant-lab
+
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+state/
+dist/
+build/
