@@ -4,5 +4,5 @@ projects:
   outputs: ../a-share-multifactor/outputs
 - name: sklearn-stock-trend
   outputs: ../sklearn-stock-trend/outputs
-- name: future_spread
+- name: quant-futures-spread
   outputs: ../future_spread_analysis-team-framework/output
