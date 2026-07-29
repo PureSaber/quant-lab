@@ -14,6 +14,7 @@ KNOWN_MARKERS: dict[str, tuple[str, ...]] = {
     "sklearn-stock-trend": ("feature_importance.csv", "report.html", "proba_signals.parquet"),
     "future_spread": ("performance/summary.csv", "daily/portfolio"),
     "quant-report-hub": ("01_nav_drawdown.png",),
+    "quant-agent": ("review_manifest.json",),
 }
 
 
@@ -112,6 +113,11 @@ def scan_run(run_path: Path, *, project: str = "") -> ScannedRun | None:
     if fi.is_file():
         metrics["feature_importance_rows"] = len(pd.read_csv(fi))
         run_type = "sklearn_ml"
+
+    review_manifest = run_path / "review_manifest.json"
+    if review_manifest.is_file():
+        metrics["review_manifest"] = True
+        run_type = "agent_review"
 
     config_path = ""
     for candidate in (run_path / "config.yaml", run_path.parent / "configs" / "default.yaml"):

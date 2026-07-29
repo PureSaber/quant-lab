@@ -10,6 +10,7 @@ from pathlib import Path
 import yaml
 
 from quant_lab.compare import compare_runs, format_comparison_table
+from quant_lab.export_html import export_html
 from quant_lab.scanner import scan_outputs_root, scan_workspace
 from quant_lab.store import ExperimentStore
 
@@ -64,6 +65,12 @@ def cmd_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_export_html(args: argparse.Namespace) -> int:
+    out = export_html(Path(args.db), Path(args.out))
+    print(f"wrote {out}")
+    return 0
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     cfg_path = Path(args.config)
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
@@ -109,6 +116,13 @@ def build_parser() -> argparse.ArgumentParser:
     cmp.add_argument("run_ids", nargs="+")
     cmp.add_argument("--json", action="store_true")
     cmp.set_defaults(func=cmd_compare)
+
+    export = sub.add_parser("export", help="Export dashboard artifacts")
+    export_sub = export.add_subparsers(dest="export_cmd", required=True)
+    html_cmd = export_sub.add_parser("html", help="Write static HTML dashboard")
+    html_cmd.add_argument("--out", default="reports/dashboard.html")
+    html_cmd.set_defaults(func=cmd_export_html)
+
     return p
 
 
