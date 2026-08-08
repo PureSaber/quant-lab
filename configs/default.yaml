@@ -5,4 +5,4 @@ projects:
 - name: sklearn-stock-trend
   outputs: ../sklearn-stock-trend/outputs
 - name: quant-futures-spread
-  outputs: ../future_spread_analysis-team-framework/output
+  outputs: ../quant-futures-spread/output
