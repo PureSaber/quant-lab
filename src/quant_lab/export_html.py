@@ -16,8 +16,15 @@ def _esc(text: str) -> str:
 def render_dashboard(store: ExperimentStore) -> str:
     rows = store.list_runs()
     cards = []
+    factor_cards = []
     for row in rows[:200]:
         metrics = json.loads(row.metrics_json) if row.metrics_json else {}
+        if metrics.get("factor_count"):
+            factor_cards.append(
+                f"<li><b>{_esc(row.project)}</b> / {_esc(row.run_id)} — "
+                f"factors={_esc(metrics.get('factor_count'))}, "
+                f"mean_ic={_esc(metrics.get('mean_ic', 'n/a'))}</li>"
+            )
         metric_bits = []
         for key in ("total_return", "max_drawdown", "calmar", "sharpe", "strategy"):
             if key in metrics:
@@ -34,6 +41,14 @@ def render_dashboard(store: ExperimentStore) -> str:
         )
 
     body = "\n".join(cards) or "<p>No runs indexed yet. Run <code>quant-lab scan</code> first.</p>"
+    factor_panel = ""
+    if factor_cards:
+        factor_panel = f"""
+  <section>
+    <h2>Factor Runs</h2>
+    <ul>{''.join(factor_cards)}</ul>
+  </section>
+"""
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -52,6 +67,7 @@ def render_dashboard(store: ExperimentStore) -> str:
 <body>
   <h1>quant-lab dashboard</h1>
   <p class="sub">{len(rows)} indexed run(s)</p>
+  {factor_panel}
   <div class="grid">
     {body}
   </div>

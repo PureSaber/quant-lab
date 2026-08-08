@@ -119,6 +119,17 @@ def scan_run(run_path: Path, *, project: str = "") -> ScannedRun | None:
         metrics["review_manifest"] = True
         run_type = "agent_review"
 
+    factor_manifest = run_path / "factor_manifest.json"
+    if factor_manifest.is_file():
+        try:
+            manifest = json.loads(factor_manifest.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            manifest = {}
+        metrics["factor_set_hash"] = manifest.get("factor_set_hash", "")
+        metrics["git_sha"] = manifest.get("git_sha", "")
+        metrics["factor_count"] = len(manifest.get("factors") or [])
+        run_type = "factor_run"
+
     config_path = ""
     for candidate in (run_path / "config.yaml", run_path.parent / "configs" / "default.yaml"):
         if candidate.is_file():
