@@ -10,6 +10,7 @@ from pathlib import Path
 import yaml
 
 from quant_lab.compare import compare_runs, format_comparison_table
+from quant_lab.contracts import load_and_validate_run
 from quant_lab.export_html import export_html
 from quant_lab.scanner import scan_outputs_root, scan_workspace
 from quant_lab.store import ExperimentStore
@@ -71,6 +72,27 @@ def cmd_export_html(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_validate(args: argparse.Namespace) -> int:
+    manifest = load_and_validate_run(Path(args.run_dir))
+    payload = {
+        "valid": True,
+        "schema_version": manifest.schema_version,
+        "project": manifest.project,
+        "run_id": manifest.run_id,
+        "code_version": manifest.code_version,
+        "dataset_snapshots": manifest.dataset_snapshots,
+        "artifacts": {record.name: record.sha256 for record in manifest.artifacts},
+    }
+    if args.json:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print(
+            f"valid standard run: {manifest.project}/{manifest.run_id} "
+            f"schema={manifest.schema_version}"
+        )
+    return 0
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     cfg_path = Path(args.config)
     cfg_path.parent.mkdir(parents=True, exist_ok=True)
@@ -122,6 +144,11 @@ def build_parser() -> argparse.ArgumentParser:
     html_cmd = export_sub.add_parser("html", help="Write static HTML dashboard")
     html_cmd.add_argument("--out", default="reports/dashboard.html")
     html_cmd.set_defaults(func=cmd_export_html)
+
+    validate = sub.add_parser("validate", help="Validate an immutable standard run")
+    validate.add_argument("--run-dir", required=True)
+    validate.add_argument("--json", action="store_true")
+    validate.set_defaults(func=cmd_validate)
 
     return p
 
