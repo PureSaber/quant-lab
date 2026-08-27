@@ -16,6 +16,7 @@ pip install -e ".[dev]"
 ```bash
 quant-lab init
 quant-lab scan --workspace configs/default.yaml
+quant-lab validate --run-dir ../a-share-multifactor/outputs/run_001
 quant-lab list
 quant-lab compare --project a-share-multifactor run_a run_b
 ```

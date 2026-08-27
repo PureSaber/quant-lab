@@ -9,6 +9,8 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+from quant_lab.contracts import load_and_validate_run
+
 KNOWN_MARKERS: dict[str, tuple[str, ...]] = {
     "a-share-multifactor": ("capital_curves.csv", "ic_summary.csv", "report.html"),
     "sklearn-stock-trend": ("feature_importance.csv", "report.html", "proba_signals.parquet"),
@@ -93,15 +95,29 @@ def scan_run(run_path: Path, *, project: str = "") -> ScannedRun | None:
     metrics: dict = {"files": [p.name for p in run_path.iterdir() if p.is_file()][:20]}
     run_type = "unknown"
 
+    standard_manifest = run_path / "standard" / "run_manifest.json"
+    if standard_manifest.is_file():
+        manifest = load_and_validate_run(run_path)
+        metrics_path = run_path / "standard" / "metrics.json"
+        standard_metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        metrics.update(standard_metrics)
+        metrics["schema_version"] = manifest.schema_version
+        metrics["code_version"] = manifest.code_version
+        metrics["dataset_snapshots"] = manifest.dataset_snapshots
+        project_name = manifest.project
+        run_type = "standard_backtest"
+
     cap = run_path / "capital_curves.csv"
     if cap.is_file():
         metrics.update(_metrics_from_capital_curves(cap))
-        run_type = "equity_backtest"
+        if run_type == "unknown":
+            run_type = "equity_backtest"
 
     summary = run_path / "performance" / "summary.csv"
     if summary.is_file():
         metrics.update(_metrics_from_summary(summary))
-        run_type = "spread_backtest"
+        if run_type == "unknown":
+            run_type = "spread_backtest"
 
     synth = run_path / "synthesis_comparison_summary.csv"
     if synth.is_file():
@@ -152,7 +168,10 @@ def scan_outputs_root(root: Path, *, project: str = "") -> list[ScannedRun]:
         return []
 
     runs: list[ScannedRun] = []
-    if any((root / marker).exists() for marker in ("capital_curves.csv", "report.html", "performance")):
+    if any(
+        (root / marker).exists()
+        for marker in ("standard", "capital_curves.csv", "report.html", "performance")
+    ):
         item = scan_run(root, project=project)
         if item:
             runs.append(item)
