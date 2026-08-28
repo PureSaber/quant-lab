@@ -597,7 +597,7 @@ def _parquet_record(
     maximum = frame["event_time"].max().isoformat() if not frame.empty else None
     return ArtifactRecordV2(
         name=name,
-        path=f"artifacts/{name}.parquet",
+        path=f"{name}.parquet",
         schema_id=f"puresaber.run.{name}",
         schema_version=SCHEMA_VERSION_V2,
         sha256=_file_sha256(path),
@@ -703,8 +703,6 @@ def write_standard_run_v2(
     temp_dir = standard_dir / f".v2-tmp-{uuid4().hex}"
     temp_dir.mkdir(parents=False, exist_ok=False)
     try:
-        artifacts_dir = temp_dir / "artifacts"
-        artifacts_dir.mkdir()
         config_payload = dict(config)
         metrics_payload = dict(metrics)
         config_path = temp_dir / "config.json"
@@ -720,7 +718,7 @@ def write_standard_run_v2(
             if name not in frames:
                 continue
             prepared = _prepare_frame(name, frames[name])
-            path = artifacts_dir / f"{name}.parquet"
+            path = temp_dir / f"{name}.parquet"
             table = pa.Table.from_pandas(
                 prepared,
                 schema=_arrow_schema(name),
