@@ -88,7 +88,8 @@ def _write_v2(
     selected = frames or _frames(
         ("returns", "positions", "portfolio_snapshots", "exposures")
     )
-    lineage = {name: ["dataset:fixture-v1"] for name in ("config", "metrics", *selected)}
+    lineage = {name: ["dataset:prices"] for name in ("metrics", *selected)}
+    lineage["config"] = []
     return write_standard_run_v2(
         run,
         project="demo-project",

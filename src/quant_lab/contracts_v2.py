@@ -404,7 +404,9 @@ def _validate_created_at(value: str | None) -> str:
 
 
 def _validate_lineage(
-    lineage: Mapping[str, Sequence[str]], artifact_names: set[str]
+    lineage: Mapping[str, Sequence[str]],
+    artifact_names: set[str],
+    dataset_names: set[str],
 ) -> dict[str, list[str]]:
     if not isinstance(lineage, Mapping):
         raise ValueError("lineage must be a mapping")
@@ -418,6 +420,11 @@ def _validate_lineage(
         clean_sources = [_require_text(source, f"lineage[{node}]") for source in sources]
         if len(clean_sources) != len(set(clean_sources)):
             raise ValueError(f"Lineage sources contain duplicates: {node}")
+        for source in clean_sources:
+            if source in artifact_names:
+                continue
+            if not source.startswith("dataset:") or source.removeprefix("dataset:") not in dataset_names:
+                raise ValueError(f"Lineage source is not declared: {source}")
         normalized[node] = clean_sources
     if set(normalized) != artifact_names:
         raise ValueError(
@@ -745,7 +752,7 @@ def write_standard_run_v2(
             )
 
         artifact_names = {record.name for record in records}
-        lineage_map = _validate_lineage(lineage, artifact_names)
+        lineage_map = _validate_lineage(lineage, artifact_names, set(snapshot_map))
         manifest = RunManifestV2(
             schema_version=SCHEMA_VERSION_V2,
             project=project,
@@ -951,7 +958,7 @@ def load_and_validate_run_v2(run_dir: Path) -> RunManifestV2:
     if _json_sha256(config_payload) != manifest.config_sha256:
         raise ValueError("config_sha256 does not match config.json")
 
-    lineage = _validate_lineage(manifest.lineage, actual)
+    lineage = _validate_lineage(manifest.lineage, actual, set(snapshots))
     if lineage != manifest.lineage:
         raise ValueError("lineage is not normalized")
     expected_time_range = _manifest_time_range(manifest.artifacts)
