@@ -29,4 +29,4 @@ def test_cli_prefers_and_validates_standard_v2(tmp_path, capsys) -> None:
     assert main(["validate", "--run-dir", str(tmp_path), "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["schema_version"] == "2.0.0"
-    assert payload["artifacts"]["valuations"]
+    assert payload["artifacts"]["portfolio_snapshots"]

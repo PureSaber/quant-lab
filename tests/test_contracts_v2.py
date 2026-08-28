@@ -12,6 +12,7 @@ from quant_lab.contracts import write_standard_run
 from quant_lab.contracts_v2 import (
     ARTIFACT_SCHEMAS_V2,
     BACKTEST_LEDGER_PROFILE,
+    PROFILE_ARTIFACTS_V2,
     RESEARCH_PROFILE,
     load_and_validate_run_v2,
     load_and_validate_standard_run,
@@ -29,21 +30,52 @@ def _sample_value(column: str):
         return 2
     if column == "event_sequence":
         return 1
+    if column == "posting_index":
+        return 0
+    if column == "reduce_only":
+        return False
     if column in {"gross_return", "net_return", "nav", "value"}:
         return 1.0
     if column in {"currency", "base_currency"}:
         return "USD"
+    if column == "side":
+        return "buy"
+    if column == "order_type":
+        return "stop_limit"
+    if column == "time_in_force":
+        return "gtc"
+    if column == "status":
+        return "accepted"
+    if column == "from_status":
+        return "created"
+    if column == "to_status":
+        return "accepted"
+    if column == "liquidity_role":
+        return "maker"
     return f"sample-{column}"
 
 
 def _frames(names: tuple[str, ...]) -> dict[str, pd.DataFrame]:
-    return {
+    result = {
         name: pd.DataFrame(
             [{column: _sample_value(column) for column in ARTIFACT_SCHEMAS_V2[name]}],
             columns=ARTIFACT_SCHEMAS_V2[name],
         )
         for name in names
     }
+    if "cash_ledger" in result:
+        first = result["cash_ledger"].iloc[0].to_dict()
+        first["amount_units"] = -10_000
+        first["posting_index"] = 0
+        first["ledger_account"] = "assets:cash"
+        second = dict(first)
+        second["amount_units"] = 10_000
+        second["posting_index"] = 1
+        second["ledger_account"] = "assets:position"
+        result["cash_ledger"] = pd.DataFrame(
+            [first, second], columns=ARTIFACT_SCHEMAS_V2["cash_ledger"]
+        )
+    return result
 
 
 def _write_v2(
@@ -52,7 +84,9 @@ def _write_v2(
     profile: str = RESEARCH_PROFILE,
     frames: dict[str, pd.DataFrame] | None = None,
 ):
-    selected = frames or _frames(("returns", "positions", "valuations", "exposures"))
+    selected = frames or _frames(
+        ("returns", "positions", "portfolio_snapshots", "exposures")
+    )
     lineage = {name: ["dataset:fixture-v1"] for name in ("config", "metrics", *selected)}
     return write_standard_run_v2(
         run,
@@ -94,7 +128,7 @@ def test_v2_research_run_is_strict_immutable_and_scannable(tmp_path: Path) -> No
         "metrics",
         "returns",
         "positions",
-        "valuations",
+        "portfolio_snapshots",
         "exposures",
     }
 
@@ -114,7 +148,9 @@ def test_v2_backtest_ledger_profile_requires_and_validates_every_artifact(
     frames = _frames(tuple(ARTIFACT_SCHEMAS_V2))
     manifest = _write_v2(tmp_path / "ledger", profile=BACKTEST_LEDGER_PROFILE, frames=frames)
     assert len(manifest.artifacts) == len(ARTIFACT_SCHEMAS_V2) + 2
-    assert all(record.required for record in manifest.artifacts)
+    required = {record.name for record in manifest.artifacts if record.required}
+    assert required == {"config", "metrics", *PROFILE_ARTIFACTS_V2[BACKTEST_LEDGER_PROFILE]}
+    assert next(record for record in manifest.artifacts if record.name == "attribution").required is False
     assert load_and_validate_run_v2(tmp_path / "ledger").profile == BACKTEST_LEDGER_PROFILE
 
 
@@ -166,17 +202,21 @@ def test_v2_rejects_extra_files_and_artifact_path_escape(tmp_path: Path) -> None
 
 
 def test_v2_rejects_naive_time_wrong_columns_and_non_finite_values(tmp_path: Path) -> None:
-    naive = _frames(("returns", "positions", "valuations", "exposures"))
+    naive = _frames(("returns", "positions", "portfolio_snapshots", "exposures"))
     naive["returns"]["event_time"] = pd.Timestamp("2025-01-02")
     with pytest.raises(ValueError, match="timezone-naive"):
         _write_v2(tmp_path / "naive", frames=naive)
 
-    wrong_columns = _frames(("returns", "positions", "valuations", "exposures"))
+    wrong_columns = _frames(
+        ("returns", "positions", "portfolio_snapshots", "exposures")
+    )
     wrong_columns["returns"]["unexpected"] = "x"
     with pytest.raises(ValueError, match="columns must exactly match"):
         _write_v2(tmp_path / "columns", frames=wrong_columns)
 
-    non_finite = _frames(("returns", "positions", "valuations", "exposures"))
+    non_finite = _frames(
+        ("returns", "positions", "portfolio_snapshots", "exposures")
+    )
     non_finite["returns"]["net_return"] = float("inf")
     with pytest.raises(ValueError, match="NaN or infinity"):
         _write_v2(tmp_path / "infinity", frames=non_finite)
@@ -205,6 +245,43 @@ def test_v2_reader_rejects_changed_arrow_physical_type(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="invalid Arrow field"):
         load_and_validate_run_v2(run)
+
+
+def test_v2_order_prices_preserve_explicit_nullable_pairs(tmp_path: Path) -> None:
+    frames = _frames(("returns", "positions", "portfolio_snapshots", "exposures", "orders"))
+    frames["orders"].loc[0, ["limit_price_units", "limit_price_scale"]] = None
+    frames["orders"].loc[0, ["stop_price_units", "stop_price_scale"]] = None
+    frames["orders"].loc[0, "order_type"] = "market"
+    _write_v2(tmp_path / "market-order", frames=frames)
+    assert load_and_validate_run_v2(tmp_path / "market-order").profile == RESEARCH_PROFILE
+
+    mismatched = _frames(
+        ("returns", "positions", "portfolio_snapshots", "exposures", "orders")
+    )
+    mismatched["orders"].loc[0, "limit_price_units"] = None
+    with pytest.raises(ValueError, match="nullable pair mismatch"):
+        _write_v2(tmp_path / "bad-pair", frames=mismatched)
+
+
+def test_v2_rejects_duplicate_illegal_and_unbalanced_execution_facts(tmp_path: Path) -> None:
+    duplicate = _frames(("returns", "positions", "portfolio_snapshots", "exposures"))
+    duplicate["returns"] = pd.concat([duplicate["returns"], duplicate["returns"]])
+    with pytest.raises(ValueError, match="duplicate primary keys"):
+        _write_v2(tmp_path / "duplicate", frames=duplicate)
+
+    illegal = _frames(
+        ("returns", "positions", "portfolio_snapshots", "exposures", "order_events")
+    )
+    illegal["order_events"].loc[0, "to_status"] = "filled"
+    with pytest.raises(ValueError, match="illegal state transition"):
+        _write_v2(tmp_path / "illegal", frames=illegal)
+
+    unbalanced = _frames(
+        ("returns", "positions", "portfolio_snapshots", "exposures", "cash_ledger")
+    )
+    unbalanced["cash_ledger"].loc[1, "amount_units"] = 9_999
+    with pytest.raises(ValueError, match="unbalanced"):
+        _write_v2(tmp_path / "unbalanced", frames=unbalanced)
 
 
 def test_v2_artifact_hashes_are_deterministic_for_identical_inputs(tmp_path: Path) -> None:
