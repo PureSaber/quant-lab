@@ -32,9 +32,11 @@ def _sample_value(column: str):
         return 1
     if column == "posting_index":
         return 0
+    if column == "version":
+        return 1
     if column == "reduce_only":
         return False
-    if column in {"gross_return", "net_return", "nav", "value"}:
+    if column in {"gross_return", "net_return", "value"}:
         return 1.0
     if column in {"currency", "base_currency"}:
         return "USD"
@@ -52,6 +54,8 @@ def _sample_value(column: str):
         return "accepted"
     if column == "liquidity_role":
         return "maker"
+    if column == "event_type":
+        return "fill"
     return f"sample-{column}"
 
 
@@ -75,6 +79,12 @@ def _frames(names: tuple[str, ...]) -> dict[str, pd.DataFrame]:
         result["cash_ledger"] = pd.DataFrame(
             [first, second], columns=ARTIFACT_SCHEMAS_V2["cash_ledger"]
         )
+    if "orders" in result:
+        result["orders"]["filled_quantity_units"] = 0
+        result["orders"]["filled_quantity_scale"] = result["orders"]["quantity_scale"]
+    if "order_events" in result:
+        result["order_events"]["fill_quantity_units"] = None
+        result["order_events"]["fill_quantity_scale"] = None
     return result
 
 
@@ -202,6 +212,24 @@ def test_v2_rejects_extra_files_and_artifact_path_escape(tmp_path: Path) -> None
     with pytest.raises(ValueError, match="escapes"):
         load_and_validate_run_v2(escape_run)
 
+    nested_run = tmp_path / "nested"
+    _write_v2(nested_run)
+    manifest_path = nested_run / "standard" / "v2" / "run_manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    next(item for item in payload["artifacts"] if item["name"] == "returns")["path"] = (
+        "nested/returns.parquet"
+    )
+    manifest_path.write_text(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (nested_run / "standard" / "v2" / "run_manifest.sha256").write_text(
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "\n",
+        encoding="ascii",
+    )
+    with pytest.raises(ValueError, match="path"):
+        load_and_validate_run_v2(nested_run)
+
 
 def test_v2_rejects_naive_time_wrong_columns_and_non_finite_values(tmp_path: Path) -> None:
     naive = _frames(("returns", "positions", "portfolio_snapshots", "exposures"))
@@ -284,6 +312,69 @@ def test_v2_rejects_duplicate_illegal_and_unbalanced_execution_facts(tmp_path: P
     unbalanced["cash_ledger"].loc[1, "amount_units"] = 9_999
     with pytest.raises(ValueError, match="unbalanced"):
         _write_v2(tmp_path / "unbalanced", frames=unbalanced)
+
+
+def test_v2_rejects_broken_order_event_chains(tmp_path: Path) -> None:
+    names = ("returns", "positions", "portfolio_snapshots", "exposures", "order_events")
+    broken_sequence = _frames(names)
+    second = broken_sequence["order_events"].iloc[0].to_dict()
+    second.update(
+        event_time=pd.Timestamp("2025-01-02T03:04:06Z"),
+        event_id="event-2",
+        event_sequence=3,
+        from_status="accepted",
+        to_status="cancelled",
+        reason="cancelled by strategy",
+    )
+    broken_sequence["order_events"] = pd.concat(
+        [broken_sequence["order_events"], pd.DataFrame([second])], ignore_index=True
+    )
+    with pytest.raises(ValueError, match="sequence is not continuous"):
+        _write_v2(tmp_path / "broken-sequence", frames=broken_sequence)
+
+    broken_status = _frames(names)
+    second["event_sequence"] = 2
+    second["from_status"] = "partially_filled"
+    broken_status["order_events"] = pd.concat(
+        [broken_status["order_events"], pd.DataFrame([second])], ignore_index=True
+    )
+    with pytest.raises(ValueError, match="state chain is broken"):
+        _write_v2(tmp_path / "broken-status", frames=broken_status)
+
+    missing_fill = _frames(names)
+    second["from_status"] = "accepted"
+    second["to_status"] = "filled"
+    second["reason"] = ""
+    missing_fill["order_events"] = pd.concat(
+        [missing_fill["order_events"], pd.DataFrame([second])], ignore_index=True
+    )
+    with pytest.raises(ValueError, match="fill quantity is required exactly"):
+        _write_v2(tmp_path / "missing-fill", frames=missing_fill)
+
+
+def test_v2_rejects_malformed_cash_ledger_transactions(tmp_path: Path) -> None:
+    names = ("returns", "positions", "portfolio_snapshots", "exposures", "cash_ledger")
+    one_posting = _frames(names)
+    one_posting["cash_ledger"] = one_posting["cash_ledger"].iloc[:1]
+    with pytest.raises(ValueError, match="at least two postings"):
+        _write_v2(tmp_path / "one-posting", frames=one_posting)
+
+    index_gap = _frames(names)
+    index_gap["cash_ledger"].loc[1, "posting_index"] = 2
+    with pytest.raises(ValueError, match="posting_index is not continuous"):
+        _write_v2(tmp_path / "index-gap", frames=index_gap)
+
+    inconsistent = _frames(names)
+    inconsistent["cash_ledger"].loc[1, "reference_id"] = "other-reference"
+    with pytest.raises(ValueError, match="reference_id is inconsistent"):
+        _write_v2(tmp_path / "inconsistent", frames=inconsistent)
+
+    no_effect = _frames(names)
+    no_effect["cash_ledger"]["amount_units"] = 0
+    no_effect["cash_ledger"]["quantity_delta_units"] = None
+    no_effect["cash_ledger"]["quantity_delta_scale"] = None
+    with pytest.raises(ValueError, match="no economic effect"):
+        _write_v2(tmp_path / "no-effect", frames=no_effect)
 
 
 def test_v2_artifact_hashes_are_deterministic_for_identical_inputs(tmp_path: Path) -> None:

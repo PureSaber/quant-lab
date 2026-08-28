@@ -32,7 +32,8 @@ ARTIFACT_SCHEMAS_V2: dict[str, tuple[str, ...]] = {
         "strategy_id",
         "gross_return",
         "net_return",
-        "nav",
+        "nav_units",
+        "nav_scale",
         "base_currency",
     ),
     "positions": (
@@ -97,6 +98,9 @@ ARTIFACT_SCHEMAS_V2: dict[str, tuple[str, ...]] = {
         "time_in_force",
         "reduce_only",
         "status",
+        "filled_quantity_units",
+        "filled_quantity_scale",
+        "version",
     ),
     "order_events": (
         "event_time",
@@ -105,12 +109,16 @@ ARTIFACT_SCHEMAS_V2: dict[str, tuple[str, ...]] = {
         "event_sequence",
         "from_status",
         "to_status",
+        "fill_quantity_units",
+        "fill_quantity_scale",
         "reason",
     ),
     "fills": (
         "event_time",
         "fill_id",
         "order_id",
+        "account_id",
+        "strategy_id",
         "instrument_id",
         "side",
         "quantity_units",
@@ -194,9 +202,9 @@ _INTEGER_COLUMNS = {
     for columns in ARTIFACT_SCHEMAS_V2.values()
     for column in columns
     if column.endswith(("_units", "_scale"))
-} | {"event_sequence", "posting_index"}
+} | {"event_sequence", "posting_index", "version"}
 _SCALE_COLUMNS = {column for column in _INTEGER_COLUMNS if column.endswith("_scale")}
-_FLOAT_COLUMNS = {"gross_return", "net_return", "nav", "value"}
+_FLOAT_COLUMNS = {"gross_return", "net_return", "value"}
 _BOOLEAN_COLUMNS = {"reduce_only"}
 _NULLABLE_COLUMNS_V2: dict[str, frozenset[str]] = {
     "orders": frozenset(
@@ -207,7 +215,7 @@ _NULLABLE_COLUMNS_V2: dict[str, frozenset[str]] = {
             "stop_price_scale",
         }
     ),
-    "order_events": frozenset({"reason"}),
+    "order_events": frozenset({"fill_quantity_units", "fill_quantity_scale"}),
     "fills": frozenset({"venue_trade_id"}),
     "costs": frozenset({"fill_id"}),
     "cash_ledger": frozenset(
@@ -220,6 +228,7 @@ _NULLABLE_PAIRS_V2: dict[str, tuple[tuple[str, str], ...]] = {
         ("limit_price_units", "limit_price_scale"),
         ("stop_price_units", "stop_price_scale"),
     ),
+    "order_events": (("fill_quantity_units", "fill_quantity_scale"),),
     "cash_ledger": (("quantity_delta_units", "quantity_delta_scale"),),
 }
 _ENUM_VALUES_V2: dict[tuple[str, str], frozenset[str]] = {
@@ -237,6 +246,9 @@ _ENUM_VALUES_V2: dict[tuple[str, str], frozenset[str]] = {
     ),
     ("fills", "side"): frozenset({"buy", "sell"}),
     ("fills", "liquidity_role"): frozenset({"maker", "taker", "unknown"}),
+    ("cash_ledger", "event_type"): frozenset(
+        {"fill", "fee", "funding", "settlement", "corporate_action", "fx_conversion"}
+    ),
 }
 _PRIMARY_KEYS_V2: dict[str, tuple[str, ...]] = {
     "returns": ("event_time", "strategy_id"),
@@ -540,7 +552,7 @@ def _validate_frame_domain(name: str, frame: pd.DataFrame) -> None:
     positive_columns: dict[str, tuple[str, ...]] = {
         "positions": ("mark_price_units", "fx_rate_units"),
         "orders": ("quantity_units",),
-        "order_events": ("event_sequence",),
+        "order_events": ("event_sequence", "fill_quantity_units"),
         "fills": ("quantity_units", "price_units"),
     }
     for column in positive_columns.get(name, ()):
@@ -566,18 +578,106 @@ def _validate_frame_domain(name: str, frame: pd.DataFrame) -> None:
                 raise ValueError("Artifact orders.limit_price_units must be positive")
             if has_stop and row.stop_price_units <= 0:
                 raise ValueError("Artifact orders.stop_price_units must be positive")
+            if row.filled_quantity_units < 0:
+                raise ValueError("Artifact orders.filled_quantity_units must be non-negative")
+            if row.filled_quantity_scale != row.quantity_scale:
+                raise ValueError(
+                    "Artifact orders filled and requested quantities must use one scale"
+                )
+            if row.filled_quantity_units > row.quantity_units:
+                raise ValueError("Artifact orders filled quantity exceeds requested quantity")
+            if row.version < 0:
+                raise ValueError("Artifact orders.version must be non-negative")
+            if row.status == "created" and (
+                row.version != 0 or row.filled_quantity_units != 0
+            ):
+                raise ValueError("Artifact orders created state is inconsistent")
+            if row.status in {"accepted", "rejected"} and (
+                row.version < 1 or row.filled_quantity_units != 0
+            ):
+                raise ValueError(f"Artifact orders {row.status} state is inconsistent")
+            if row.status in {"partially_filled", "filled", "cancelled", "expired"} and (
+                row.version < 2
+            ):
+                raise ValueError(f"Artifact orders {row.status} version is inconsistent")
+            if row.status == "partially_filled" and not (
+                0 < row.filled_quantity_units < row.quantity_units
+            ):
+                raise ValueError("Artifact orders partially_filled quantity is inconsistent")
+            if row.status == "filled" and row.filled_quantity_units != row.quantity_units:
+                raise ValueError("Artifact orders filled quantity is inconsistent")
 
     if name == "order_events":
         transitions = set(zip(frame["from_status"], frame["to_status"], strict=True))
         if not transitions.issubset(_ORDER_TRANSITIONS_V2):
             raise ValueError("Artifact order_events contains an illegal state transition")
+        for order_id, events in frame.groupby("order_id", sort=False):
+            sequences = events["event_sequence"].astype(int).tolist()
+            expected = list(range(1, len(events) + 1))
+            if sequences != expected:
+                raise ValueError(
+                    f"Artifact order_events sequence is not continuous for {order_id}"
+                )
+            if events.iloc[0]["from_status"] != "created":
+                raise ValueError(
+                    f"Artifact order_events chain must start from created for {order_id}"
+                )
+            prior_status: str | None = None
+            for row in events.itertuples(index=False):
+                if prior_status is not None and row.from_status != prior_status:
+                    raise ValueError(
+                        f"Artifact order_events state chain is broken for {order_id}"
+                    )
+                is_fill = row.to_status in {"partially_filled", "filled"}
+                has_fill = not pd.isna(row.fill_quantity_units)
+                if is_fill != has_fill:
+                    raise ValueError(
+                        "Artifact order_events fill quantity is required exactly for fills"
+                    )
+                if is_fill and row.fill_quantity_units <= 0:
+                    raise ValueError("Artifact order_events.fill_quantity_units must be positive")
+                if row.to_status in {"cancelled", "rejected", "expired"} and not row.reason:
+                    raise ValueError(
+                        f"Artifact order_events {row.to_status} transition requires a reason"
+                    )
+                prior_status = row.to_status
 
     if name == "cash_ledger":
         balances: dict[tuple[str, str], Decimal] = {}
-        for row in frame.itertuples(index=False):
-            key = (row.transaction_id, row.currency)
-            amount = Decimal(int(row.amount_units)).scaleb(-int(row.amount_scale))
-            balances[key] = balances.get(key, Decimal(0)) + amount
+        transaction_fields = (
+            "idempotency_key",
+            "event_type",
+            "reference_id",
+            "event_time",
+            "account_id",
+        )
+        for transaction_id, postings in frame.groupby("transaction_id", sort=False):
+            if len(postings) < 2:
+                raise ValueError(
+                    f"Artifact cash_ledger transaction requires at least two postings: "
+                    f"{transaction_id}"
+                )
+            indexes = postings["posting_index"].astype(int).tolist()
+            if indexes != list(range(len(postings))):
+                raise ValueError(
+                    f"Artifact cash_ledger posting_index is not continuous for {transaction_id}"
+                )
+            for column in transaction_fields:
+                if postings[column].nunique(dropna=False) != 1:
+                    raise ValueError(
+                        f"Artifact cash_ledger {column} is inconsistent for {transaction_id}"
+                    )
+            has_amount = postings["amount_units"].ne(0).any()
+            quantity_units = postings["quantity_delta_units"].dropna()
+            has_quantity = not quantity_units.empty and quantity_units.ne(0).any()
+            if not has_amount and not has_quantity:
+                raise ValueError(
+                    f"Artifact cash_ledger transaction has no economic effect: {transaction_id}"
+                )
+            for row in postings.itertuples(index=False):
+                key = (row.transaction_id, row.currency)
+                amount = Decimal(int(row.amount_units)).scaleb(-int(row.amount_scale))
+                balances[key] = balances.get(key, Decimal(0)) + amount
         unbalanced = {key: value for key, value in balances.items() if value != 0}
         if unbalanced:
             raise ValueError(f"Artifact cash_ledger is unbalanced: {unbalanced}")
@@ -807,6 +907,8 @@ def _safe_artifact_path(base: Path, relative: str) -> Path:
     relative_path = Path(relative)
     if relative_path.is_absolute() or ".." in relative_path.parts:
         raise ValueError(f"Artifact path escapes standard/v2: {relative}")
+    if relative_path.parent != Path("."):
+        raise ValueError(f"Artifact path must be a flat standard/v2 file: {relative}")
     path = base / relative_path
     try:
         path.resolve(strict=False).relative_to(base.resolve())
@@ -822,6 +924,8 @@ def _safe_artifact_path(base: Path, relative: str) -> Path:
 
 def _validate_parquet_artifact(base: Path, record: ArtifactRecordV2) -> None:
     path = _safe_artifact_path(base, record.path)
+    if record.path != f"{record.name}.parquet":
+        raise ValueError(f"Artifact path does not match its name: {record.name}")
     if not path.is_file() or _file_sha256(path) != record.sha256:
         raise ValueError(f"Artifact missing or mutated: {path}")
     expected_columns = list(ARTIFACT_SCHEMAS_V2[record.name])
@@ -856,6 +960,8 @@ def _validate_json_artifact(
     base: Path, record: ArtifactRecordV2
 ) -> dict[str, Any]:
     path = _safe_artifact_path(base, record.path)
+    if record.path != f"{record.name}.json":
+        raise ValueError(f"Artifact path does not match its name: {record.name}")
     if not path.is_file() or _file_sha256(path) != record.sha256:
         raise ValueError(f"Artifact missing or mutated: {path}")
     try:
