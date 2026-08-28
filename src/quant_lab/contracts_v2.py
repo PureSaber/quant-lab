@@ -9,11 +9,13 @@ import re
 import shutil
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 from uuid import uuid4
 
 import pandas as pd
+import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -44,19 +46,28 @@ ARTIFACT_SCHEMAS_V2: dict[str, tuple[str, ...]] = {
         "market_value_units",
         "market_value_scale",
         "currency",
+        "fx_rate_units",
+        "fx_rate_scale",
+        "fx_snapshot_id",
+        "base_market_value_units",
+        "base_market_value_scale",
     ),
-    "valuations": (
+    "portfolio_snapshots": (
         "event_time",
         "account_id",
+        "base_currency",
         "nav_units",
         "nav_scale",
         "cash_value_units",
         "cash_value_scale",
+        "market_value_units",
+        "market_value_scale",
         "unrealized_pnl_units",
         "unrealized_pnl_scale",
         "realized_pnl_units",
         "realized_pnl_scale",
-        "base_currency",
+        "margin_used_units",
+        "margin_used_scale",
     ),
     "exposures": (
         "event_time",
@@ -70,6 +81,7 @@ ARTIFACT_SCHEMAS_V2: dict[str, tuple[str, ...]] = {
     "orders": (
         "event_time",
         "order_id",
+        "idempotency_key",
         "account_id",
         "strategy_id",
         "instrument_id",
@@ -77,13 +89,21 @@ ARTIFACT_SCHEMAS_V2: dict[str, tuple[str, ...]] = {
         "quantity_units",
         "quantity_scale",
         "order_type",
+        "limit_price_units",
+        "limit_price_scale",
+        "stop_price_units",
+        "stop_price_scale",
+        "time_in_force",
+        "reduce_only",
         "status",
     ),
     "order_events": (
         "event_time",
+        "event_id",
         "order_id",
         "event_sequence",
-        "status",
+        "from_status",
+        "to_status",
         "reason",
     ),
     "fills": (
@@ -91,28 +111,42 @@ ARTIFACT_SCHEMAS_V2: dict[str, tuple[str, ...]] = {
         "fill_id",
         "order_id",
         "instrument_id",
+        "side",
         "quantity_units",
         "quantity_scale",
         "price_units",
         "price_scale",
         "currency",
+        "liquidity_role",
+        "venue_trade_id",
     ),
     "costs": (
         "event_time",
+        "cost_id",
         "account_id",
         "strategy_id",
         "instrument_id",
+        "fill_id",
         "cost_type",
         "amount_units",
         "amount_scale",
         "currency",
     ),
-    "cash": (
+    "cash_ledger": (
         "event_time",
+        "transaction_id",
+        "idempotency_key",
+        "event_type",
+        "reference_id",
+        "posting_index",
+        "ledger_account",
         "account_id",
         "currency",
-        "balance_units",
-        "balance_scale",
+        "amount_units",
+        "amount_scale",
+        "instrument_id",
+        "quantity_delta_units",
+        "quantity_delta_scale",
     ),
     "margin": (
         "event_time",
@@ -123,11 +157,35 @@ ARTIFACT_SCHEMAS_V2: dict[str, tuple[str, ...]] = {
         "margin_scale",
         "currency",
     ),
+    "attribution": (
+        "event_time",
+        "account_id",
+        "strategy_id",
+        "instrument_id",
+        "component",
+        "amount_units",
+        "amount_scale",
+        "currency",
+        "base_amount_units",
+        "base_amount_scale",
+        "base_currency",
+    ),
 }
 
 PROFILE_ARTIFACTS_V2: dict[str, tuple[str, ...]] = {
-    RESEARCH_PROFILE: ("returns", "positions", "valuations", "exposures"),
-    BACKTEST_LEDGER_PROFILE: tuple(ARTIFACT_SCHEMAS_V2),
+    RESEARCH_PROFILE: ("returns", "positions", "portfolio_snapshots", "exposures"),
+    BACKTEST_LEDGER_PROFILE: (
+        "returns",
+        "positions",
+        "portfolio_snapshots",
+        "exposures",
+        "orders",
+        "order_events",
+        "fills",
+        "costs",
+        "cash_ledger",
+        "margin",
+    ),
 }
 
 _INTEGER_COLUMNS = {
@@ -135,9 +193,87 @@ _INTEGER_COLUMNS = {
     for columns in ARTIFACT_SCHEMAS_V2.values()
     for column in columns
     if column.endswith("_units") or column.endswith("_scale")
-} | {"event_sequence"}
+} | {"event_sequence", "posting_index"}
 _SCALE_COLUMNS = {column for column in _INTEGER_COLUMNS if column.endswith("_scale")}
 _FLOAT_COLUMNS = {"gross_return", "net_return", "nav", "value"}
+_BOOLEAN_COLUMNS = {"reduce_only"}
+_NULLABLE_COLUMNS_V2: dict[str, frozenset[str]] = {
+    "orders": frozenset(
+        {
+            "limit_price_units",
+            "limit_price_scale",
+            "stop_price_units",
+            "stop_price_scale",
+        }
+    ),
+    "order_events": frozenset({"reason"}),
+    "fills": frozenset({"venue_trade_id"}),
+    "costs": frozenset({"fill_id"}),
+    "cash_ledger": frozenset(
+        {"instrument_id", "quantity_delta_units", "quantity_delta_scale"}
+    ),
+    "attribution": frozenset({"instrument_id"}),
+}
+_NULLABLE_PAIRS_V2: dict[str, tuple[tuple[str, str], ...]] = {
+    "orders": (
+        ("limit_price_units", "limit_price_scale"),
+        ("stop_price_units", "stop_price_scale"),
+    ),
+    "cash_ledger": (("quantity_delta_units", "quantity_delta_scale"),),
+}
+_ENUM_VALUES_V2: dict[tuple[str, str], frozenset[str]] = {
+    ("orders", "side"): frozenset({"buy", "sell"}),
+    ("orders", "order_type"): frozenset({"market", "limit", "stop", "stop_limit"}),
+    ("orders", "time_in_force"): frozenset({"day", "gtc", "ioc", "fok"}),
+    ("orders", "status"): frozenset(
+        {"created", "accepted", "partially_filled", "filled", "cancelled", "rejected", "expired"}
+    ),
+    ("order_events", "from_status"): frozenset(
+        {"created", "accepted", "partially_filled"}
+    ),
+    ("order_events", "to_status"): frozenset(
+        {"accepted", "partially_filled", "filled", "cancelled", "rejected", "expired"}
+    ),
+    ("fills", "side"): frozenset({"buy", "sell"}),
+    ("fills", "liquidity_role"): frozenset({"maker", "taker", "unknown"}),
+}
+_PRIMARY_KEYS_V2: dict[str, tuple[str, ...]] = {
+    "returns": ("event_time", "strategy_id"),
+    "positions": ("event_time", "account_id", "strategy_id", "instrument_id"),
+    "portfolio_snapshots": ("event_time", "account_id"),
+    "exposures": (
+        "event_time",
+        "account_id",
+        "strategy_id",
+        "exposure_type",
+        "name",
+    ),
+    "orders": ("order_id",),
+    "order_events": ("order_id", "event_sequence"),
+    "fills": ("fill_id",),
+    "costs": ("cost_id",),
+    "cash_ledger": ("transaction_id", "posting_index"),
+    "margin": ("event_time", "account_id", "instrument_id"),
+    "attribution": (
+        "event_time",
+        "account_id",
+        "strategy_id",
+        "instrument_id",
+        "component",
+    ),
+}
+_ORDER_TRANSITIONS_V2 = {
+    ("created", "accepted"),
+    ("created", "rejected"),
+    ("accepted", "partially_filled"),
+    ("accepted", "filled"),
+    ("accepted", "cancelled"),
+    ("accepted", "expired"),
+    ("partially_filled", "partially_filled"),
+    ("partially_filled", "filled"),
+    ("partially_filled", "cancelled"),
+    ("partially_filled", "expired"),
+}
 _CURRENCY_PATTERN = re.compile(r"^[A-Z0-9]{3,12}$")
 
 
@@ -317,49 +453,132 @@ def _prepare_frame(name: str, frame: pd.DataFrame) -> pd.DataFrame:
     if actual != expected:
         raise ValueError(f"Artifact {name} columns must exactly match {expected}; got {actual}")
     result = frame.copy()
-    if result[expected].isna().any().any():
+    nullable = _NULLABLE_COLUMNS_V2.get(name, frozenset())
+    required_columns = [column for column in expected if column not in nullable]
+    if result[required_columns].isna().any().any():
         raise ValueError(f"Artifact {name} contains null required values")
+    for left, right in _NULLABLE_PAIRS_V2.get(name, ()):
+        if not result[left].isna().equals(result[right].isna()):
+            raise ValueError(f"Artifact {name} nullable pair mismatch: {left}/{right}")
     result["event_time"] = _validate_utc_series(result["event_time"], name)
 
     for column in expected:
         if column in _INTEGER_COLUMNS:
             numeric = pd.to_numeric(result[column], errors="raise")
-            if not numeric.empty and not numeric.map(lambda value: float(value).is_integer()).all():
+            present = numeric.dropna()
+            if not present.empty and not present.map(lambda value: float(value).is_integer()).all():
                 raise ValueError(f"Artifact {name}.{column} must contain integers")
-            result[column] = numeric.astype("int64")
+            dtype = "Int16" if column in _SCALE_COLUMNS and column in nullable else None
+            if dtype is None:
+                dtype = "int16" if column in _SCALE_COLUMNS else "int64"
+                if column in nullable:
+                    dtype = "Int64"
+            result[column] = numeric.astype(dtype)
         elif column in _FLOAT_COLUMNS:
             numeric = pd.to_numeric(result[column], errors="raise").astype("float64")
             if not numeric.map(math.isfinite).all():
                 raise ValueError(f"Artifact {name}.{column} contains NaN or infinity")
             result[column] = numeric
+        elif column in _BOOLEAN_COLUMNS:
+            present = result[column].dropna()
+            if not present.map(lambda value: isinstance(value, (bool, np.bool_))).all():
+                raise ValueError(f"Artifact {name}.{column} must contain booleans")
+            result[column] = result[column].astype("boolean" if column in nullable else "bool")
         elif column != "event_time":
-            if not result[column].map(lambda value: isinstance(value, str) and bool(value)).all():
+            present = result[column].dropna()
+            allow_empty = column == "reason"
+            if not present.map(
+                lambda value: isinstance(value, str) and (allow_empty or bool(value))
+            ).all():
                 raise ValueError(f"Artifact {name}.{column} must contain non-empty strings")
             result[column] = result[column].astype("string")
 
     for column in _SCALE_COLUMNS.intersection(expected):
-        if not result[column].between(0, 18).all():
+        if not result[column].dropna().between(0, 18).all():
             raise ValueError(f"Artifact {name}.{column} must be between 0 and 18")
     for column in ("currency", "base_currency"):
         if column in result:
-            for value in result[column].unique():
+            for value in result[column].dropna().unique():
                 _validate_currency(str(value), f"{name}.{column}")
+    _validate_frame_domain(name, result)
     return result
+
+
+def _validate_frame_domain(name: str, frame: pd.DataFrame) -> None:
+    if not frame["event_time"].is_monotonic_increasing:
+        raise ValueError(f"Artifact {name} must be ordered by event_time")
+    primary_key = list(_PRIMARY_KEYS_V2[name])
+    if frame.duplicated(primary_key).any():
+        raise ValueError(f"Artifact {name} contains duplicate primary keys")
+    for (artifact, column), allowed in _ENUM_VALUES_V2.items():
+        if artifact == name and not set(frame[column].dropna()).issubset(allowed):
+            raise ValueError(f"Artifact {name}.{column} contains an unsupported value")
+
+    positive_columns: dict[str, tuple[str, ...]] = {
+        "positions": ("mark_price_units", "fx_rate_units"),
+        "orders": ("quantity_units",),
+        "order_events": ("event_sequence",),
+        "fills": ("quantity_units", "price_units"),
+    }
+    for column in positive_columns.get(name, ()):
+        if not frame[column].dropna().gt(0).all():
+            raise ValueError(f"Artifact {name}.{column} must be positive")
+    if name == "cash_ledger" and not frame["posting_index"].ge(0).all():
+        raise ValueError("Artifact cash_ledger.posting_index must be non-negative")
+
+    if name == "orders":
+        requirements = {
+            "market": (False, False),
+            "limit": (True, False),
+            "stop": (False, True),
+            "stop_limit": (True, True),
+        }
+        for row in frame.itertuples(index=False):
+            needs_limit, needs_stop = requirements[row.order_type]
+            has_limit = not pd.isna(row.limit_price_units)
+            has_stop = not pd.isna(row.stop_price_units)
+            if (has_limit, has_stop) != (needs_limit, needs_stop):
+                raise ValueError(f"Artifact orders price requirement violated: {row.order_type}")
+            if has_limit and row.limit_price_units <= 0:
+                raise ValueError("Artifact orders.limit_price_units must be positive")
+            if has_stop and row.stop_price_units <= 0:
+                raise ValueError("Artifact orders.stop_price_units must be positive")
+
+    if name == "order_events":
+        transitions = set(zip(frame["from_status"], frame["to_status"], strict=True))
+        if not transitions.issubset(_ORDER_TRANSITIONS_V2):
+            raise ValueError("Artifact order_events contains an illegal state transition")
+
+    if name == "cash_ledger":
+        balances: dict[tuple[str, str], Decimal] = {}
+        for row in frame.itertuples(index=False):
+            key = (row.transaction_id, row.currency)
+            amount = Decimal(int(row.amount_units)).scaleb(-int(row.amount_scale))
+            balances[key] = balances.get(key, Decimal(0)) + amount
+        unbalanced = {key: value for key, value in balances.items() if value != 0}
+        if unbalanced:
+            raise ValueError(f"Artifact cash_ledger is unbalanced: {unbalanced}")
 
 
 def _arrow_type(column: str) -> pa.DataType:
     if column == "event_time":
         return pa.timestamp("ns", tz="UTC")
     if column in _INTEGER_COLUMNS:
-        return pa.int64()
+        return pa.int16() if column in _SCALE_COLUMNS else pa.int64()
     if column in _FLOAT_COLUMNS:
         return pa.float64()
+    if column in _BOOLEAN_COLUMNS:
+        return pa.bool_()
     return pa.string()
 
 
 def _arrow_schema(name: str) -> pa.Schema:
+    nullable = _NULLABLE_COLUMNS_V2.get(name, frozenset())
     return pa.schema(
-        [pa.field(column, _arrow_type(column), nullable=False) for column in ARTIFACT_SCHEMAS_V2[name]],
+        [
+            pa.field(column, _arrow_type(column), nullable=column in nullable)
+            for column in ARTIFACT_SCHEMAS_V2[name]
+        ],
         metadata={
             b"schema_id": f"puresaber.run.{name}".encode("ascii"),
             b"schema_version": SCHEMA_VERSION_V2.encode("ascii"),
@@ -592,7 +811,7 @@ def _validate_parquet_artifact(base: Path, record: ArtifactRecordV2) -> None:
         raise ValueError(f"Artifact metadata mismatch: {record.name}")
     expected_schema = _arrow_schema(record.name)
     for arrow_field, expected_field in zip(table.schema, expected_schema, strict=True):
-        if arrow_field.type != expected_field.type or arrow_field.nullable:
+        if arrow_field != expected_field:
             raise ValueError(
                 f"Artifact {record.name}.{arrow_field.name} has invalid Arrow field "
                 f"{arrow_field}"
@@ -608,6 +827,8 @@ def _validate_parquet_artifact(base: Path, record: ArtifactRecordV2) -> None:
     maximum = prepared["event_time"].max().isoformat() if not prepared.empty else None
     if minimum != record.min_event_time or maximum != record.max_event_time:
         raise ValueError(f"Artifact time range mismatch: {record.name}")
+    if record.min_available_at is not None or record.max_available_at is not None:
+        raise ValueError(f"Artifact cannot declare unavailable bounds: {record.name}")
 
 
 def _validate_json_artifact(
@@ -642,6 +863,8 @@ def load_and_validate_run_v2(run_dir: Path) -> RunManifestV2:
     base = Path(run_dir) / "standard" / "v2"
     manifest_path = base / "run_manifest.json"
     checksum_path = base / "run_manifest.sha256"
+    if base.is_symlink() or any(path.is_symlink() for path in base.rglob("*")):
+        raise ValueError("Symlinks are forbidden in standard/v2")
     if not manifest_path.is_file():
         raise FileNotFoundError(f"standard/v2 manifest missing: {manifest_path}")
     if not checksum_path.is_file():
