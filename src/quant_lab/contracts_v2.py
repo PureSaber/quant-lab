@@ -683,6 +683,77 @@ def _validate_frame_domain(name: str, frame: pd.DataFrame) -> None:
             raise ValueError(f"Artifact cash_ledger is unbalanced: {unbalanced}")
 
 
+def _validate_cross_artifact_domain(frames: Mapping[str, pd.DataFrame]) -> None:
+    orders = frames.get("orders")
+    order_events = frames.get("order_events")
+    fills = frames.get("fills")
+    if orders is None:
+        if order_events is not None or fills is not None:
+            raise ValueError("Artifact order_events and fills require orders")
+        return
+
+    orders_by_id = {row.order_id: row for row in orders.itertuples(index=False)}
+    events_by_order = (
+        {order_id: group for order_id, group in order_events.groupby("order_id", sort=False)}
+        if order_events is not None
+        else {}
+    )
+    fills_by_order = (
+        {order_id: group for order_id, group in fills.groupby("order_id", sort=False)}
+        if fills is not None
+        else {}
+    )
+    unknown_event_orders = set(events_by_order) - set(orders_by_id)
+    unknown_fill_orders = set(fills_by_order) - set(orders_by_id)
+    if unknown_event_orders or unknown_fill_orders:
+        raise ValueError(
+            "Execution facts reference unknown orders: "
+            f"events={sorted(unknown_event_orders)}, fills={sorted(unknown_fill_orders)}"
+        )
+
+    for order_id, order in orders_by_id.items():
+        events = events_by_order.get(order_id)
+        order_fills = fills_by_order.get(order_id)
+        if order.version > 0 and events is None:
+            raise ValueError(f"Artifact orders version requires order_events for {order_id}")
+        if events is not None:
+            final_event = events.iloc[-1]
+            if int(final_event["event_sequence"]) != order.version:
+                raise ValueError(f"Order version disagrees with order_events for {order_id}")
+            if final_event["to_status"] != order.status:
+                raise ValueError(f"Order status disagrees with order_events for {order_id}")
+            if events["event_time"].lt(order.event_time).any():
+                raise ValueError(f"Order event precedes order creation for {order_id}")
+
+        event_fill_units = 0
+        if events is not None:
+            event_fills = events.dropna(subset=["fill_quantity_units"])
+            if not event_fills.empty:
+                if not event_fills["fill_quantity_scale"].eq(order.quantity_scale).all():
+                    raise ValueError(
+                        f"Order event fill scale disagrees with order quantity for {order_id}"
+                    )
+                event_fill_units = int(event_fills["fill_quantity_units"].sum())
+
+        fill_units = 0
+        if order_fills is not None:
+            if order_fills["event_time"].lt(order.event_time).any():
+                raise ValueError(f"Fill precedes order creation for {order_id}")
+            if not order_fills["quantity_scale"].eq(order.quantity_scale).all():
+                raise ValueError(f"Fill scale disagrees with order quantity for {order_id}")
+            for column in ("account_id", "strategy_id", "instrument_id", "side"):
+                if not order_fills[column].eq(getattr(order, column)).all():
+                    raise ValueError(f"Fill {column} disagrees with order for {order_id}")
+            fill_units = int(order_fills["quantity_units"].sum())
+
+        expected_units = int(order.filled_quantity_units)
+        if event_fill_units != expected_units or fill_units != expected_units:
+            raise ValueError(
+                f"Order fill quantities disagree for {order_id}: "
+                f"order={expected_units}, events={event_fill_units}, fills={fill_units}"
+            )
+
+
 def _arrow_type(column: str) -> pa.DataType:
     if column == "event_time":
         return pa.timestamp("ns", tz="UTC")
@@ -826,6 +897,10 @@ def write_standard_run_v2(
     temp_dir = standard_dir / f".v2-tmp-{uuid4().hex}"
     temp_dir.mkdir(parents=False, exist_ok=False)
     try:
+        prepared_frames = {
+            name: _prepare_frame(name, frame) for name, frame in frames.items()
+        }
+        _validate_cross_artifact_domain(prepared_frames)
         config_payload = dict(config)
         metrics_payload = dict(metrics)
         config_path = temp_dir / "config.json"
@@ -838,9 +913,9 @@ def write_standard_run_v2(
         ]
 
         for name in ARTIFACT_SCHEMAS_V2:
-            if name not in frames:
+            if name not in prepared_frames:
                 continue
-            prepared = _prepare_frame(name, frames[name])
+            prepared = prepared_frames[name]
             path = temp_dir / f"{name}.parquet"
             table = pa.Table.from_pandas(
                 prepared,
@@ -922,7 +997,7 @@ def _safe_artifact_path(base: Path, relative: str) -> Path:
     return path
 
 
-def _validate_parquet_artifact(base: Path, record: ArtifactRecordV2) -> None:
+def _validate_parquet_artifact(base: Path, record: ArtifactRecordV2) -> pd.DataFrame:
     path = _safe_artifact_path(base, record.path)
     if record.path != f"{record.name}.parquet":
         raise ValueError(f"Artifact path does not match its name: {record.name}")
@@ -954,6 +1029,7 @@ def _validate_parquet_artifact(base: Path, record: ArtifactRecordV2) -> None:
         raise ValueError(f"Artifact time range mismatch: {record.name}")
     if record.min_available_at is not None or record.max_available_at is not None:
         raise ValueError(f"Artifact cannot declare unavailable bounds: {record.name}")
+    return prepared
 
 
 def _validate_json_artifact(
@@ -1051,6 +1127,7 @@ def load_and_validate_run_v2(run_dir: Path) -> RunManifestV2:
             "Run artifacts mismatch: "
             f"missing={sorted(expected_required - actual)}, extra={sorted(actual - allowed)}"
         )
+    validated_frames: dict[str, pd.DataFrame] = {}
     for name, record in records_by_name.items():
         if record.schema_id != f"puresaber.run.{name}":
             raise ValueError(f"Artifact schema id mismatch: {name}")
@@ -1059,7 +1136,8 @@ def load_and_validate_run_v2(run_dir: Path) -> RunManifestV2:
         if record.required != (name in expected_required):
             raise ValueError(f"Artifact required flag mismatch: {name}")
         if name in ARTIFACT_SCHEMAS_V2:
-            _validate_parquet_artifact(base, record)
+            validated_frames[name] = _validate_parquet_artifact(base, record)
+    _validate_cross_artifact_domain(validated_frames)
 
     config_payload = _validate_json_artifact(base, records_by_name["config"])
     _validate_json_artifact(base, records_by_name["metrics"])

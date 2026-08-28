@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -82,9 +83,33 @@ def _frames(names: tuple[str, ...]) -> dict[str, pd.DataFrame]:
     if "orders" in result:
         result["orders"]["filled_quantity_units"] = 0
         result["orders"]["filled_quantity_scale"] = result["orders"]["quantity_scale"]
+        if "order_events" not in result:
+            result["orders"]["status"] = "created"
+            result["orders"]["version"] = 0
     if "order_events" in result:
         result["order_events"]["fill_quantity_units"] = None
         result["order_events"]["fill_quantity_scale"] = None
+    if {"orders", "order_events", "fills"}.issubset(result):
+        result["orders"].loc[0, "status"] = "filled"
+        result["orders"].loc[0, "filled_quantity_units"] = result["orders"].loc[
+            0, "quantity_units"
+        ]
+        result["orders"].loc[0, "version"] = 2
+        accepted = result["order_events"].iloc[0].to_dict()
+        filled = dict(accepted)
+        filled.update(
+            event_time=pd.Timestamp("2025-01-02T03:04:06Z"),
+            event_id="event-2",
+            event_sequence=2,
+            from_status="accepted",
+            to_status="filled",
+            fill_quantity_units=result["orders"].loc[0, "quantity_units"],
+            fill_quantity_scale=result["orders"].loc[0, "quantity_scale"],
+            reason="",
+        )
+        result["order_events"] = pd.DataFrame(
+            [accepted, filled], columns=ARTIFACT_SCHEMAS_V2["order_events"]
+        )
     return result
 
 
@@ -300,7 +325,14 @@ def test_v2_rejects_duplicate_illegal_and_unbalanced_execution_facts(tmp_path: P
         _write_v2(tmp_path / "duplicate", frames=duplicate)
 
     illegal = _frames(
-        ("returns", "positions", "portfolio_snapshots", "exposures", "order_events")
+        (
+            "returns",
+            "positions",
+            "portfolio_snapshots",
+            "exposures",
+            "orders",
+            "order_events",
+        )
     )
     illegal["order_events"].loc[0, "to_status"] = "filled"
     with pytest.raises(ValueError, match="illegal state transition"):
@@ -315,7 +347,14 @@ def test_v2_rejects_duplicate_illegal_and_unbalanced_execution_facts(tmp_path: P
 
 
 def test_v2_rejects_broken_order_event_chains(tmp_path: Path) -> None:
-    names = ("returns", "positions", "portfolio_snapshots", "exposures", "order_events")
+    names = (
+        "returns",
+        "positions",
+        "portfolio_snapshots",
+        "exposures",
+        "orders",
+        "order_events",
+    )
     broken_sequence = _frames(names)
     second = broken_sequence["order_events"].iloc[0].to_dict()
     second.update(
@@ -350,6 +389,56 @@ def test_v2_rejects_broken_order_event_chains(tmp_path: Path) -> None:
     )
     with pytest.raises(ValueError, match="fill quantity is required exactly"):
         _write_v2(tmp_path / "missing-fill", frames=missing_fill)
+
+
+def test_v2_rejects_cross_artifact_overfills(tmp_path: Path) -> None:
+    frames = _frames(tuple(ARTIFACT_SCHEMAS_V2))
+    frames["orders"].loc[0, "quantity_units"] = 1_000
+    frames["orders"].loc[0, "filled_quantity_units"] = 1_000
+    with pytest.raises(ValueError, match="fill quantities disagree"):
+        _write_v2(
+            tmp_path / "cross-artifact-overfill",
+            profile=BACKTEST_LEDGER_PROFILE,
+            frames=frames,
+        )
+
+
+def test_v2_reader_rechecks_cross_artifact_execution_consistency(tmp_path: Path) -> None:
+    run = tmp_path / "reader-cross-artifact"
+    _write_v2(
+        run,
+        profile=BACKTEST_LEDGER_PROFILE,
+        frames=_frames(tuple(ARTIFACT_SCHEMAS_V2)),
+    )
+    base = run / "standard" / "v2"
+    fills_path = base / "fills.parquet"
+    table = pq.read_table(fills_path)
+    frame = table.to_pandas()
+    frame.loc[0, "quantity_units"] = 20_000
+    pq.write_table(
+        pa.Table.from_pandas(
+            frame,
+            schema=table.schema,
+            preserve_index=False,
+            safe=True,
+        ),
+        fills_path,
+    )
+
+    manifest_path = base / "run_manifest.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    record = next(item for item in payload["artifacts"] if item["name"] == "fills")
+    record["sha256"] = hashlib.sha256(fills_path.read_bytes()).hexdigest()
+    manifest_path.write_text(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (base / "run_manifest.sha256").write_text(
+        hashlib.sha256(manifest_path.read_bytes()).hexdigest() + "\n",
+        encoding="ascii",
+    )
+    with pytest.raises(ValueError, match="fill quantities disagree"):
+        load_and_validate_run_v2(run)
 
 
 def test_v2_rejects_malformed_cash_ledger_transactions(tmp_path: Path) -> None:
