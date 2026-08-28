@@ -83,6 +83,7 @@ def _write_v2(
     *,
     profile: str = RESEARCH_PROFILE,
     frames: dict[str, pd.DataFrame] | None = None,
+    internal_dependencies: dict[str, str] | None = None,
 ):
     selected = frames or _frames(
         ("returns", "positions", "portfolio_snapshots", "exposures")
@@ -97,8 +98,8 @@ def _write_v2(
         frames=selected,
         metrics={"total_return": 0.1},
         config={"seed": 7, "base_currency": "USD"},
-        code_version="abc123",
-        internal_dependencies={"quant-data-kit": "v0.4.0"},
+        code_version="a" * 40,
+        internal_dependencies=internal_dependencies or {"quant-data-kit": "v0.4.0"},
         random_seed=7,
         dataset_snapshots={"prices": "sha256:fixture-v1"},
         instrument_master_version="instruments-v1",
@@ -304,3 +305,11 @@ def test_unified_loader_falls_back_only_when_v2_is_absent(tmp_path: Path) -> Non
         code_version="v1",
     )
     assert load_and_validate_standard_run(tmp_path).schema_version == "1.0"
+
+
+def test_v2_rejects_floating_internal_dependency_versions(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="exact release or commit"):
+        _write_v2(
+            tmp_path / "floating",
+            internal_dependencies={"quant-data-kit": "main"},
+        )

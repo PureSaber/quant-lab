@@ -275,6 +275,10 @@ _ORDER_TRANSITIONS_V2 = {
     ("partially_filled", "expired"),
 }
 _CURRENCY_PATTERN = re.compile(r"^[A-Z0-9]{3,12}$")
+_RELEASE_VERSION_PATTERN = re.compile(
+    r"^(?:v)?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$|^[0-9a-f]{40}$"
+)
+_GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 
 @dataclass(frozen=True)
@@ -367,6 +371,16 @@ def _validate_string_map(value: Mapping[str, str], field_name: str) -> dict[str,
         result[_require_text(key, f"{field_name} key")] = _require_text(
             item, f"{field_name}[{key!r}]"
         )
+    return result
+
+
+def _validate_internal_dependencies(value: Mapping[str, str]) -> dict[str, str]:
+    result = _validate_string_map(value, "internal_dependencies")
+    for name, version in result.items():
+        if not _RELEASE_VERSION_PATTERN.fullmatch(version):
+            raise ValueError(
+                f"internal_dependencies[{name!r}] must be an exact release or commit"
+            )
     return result
 
 
@@ -676,9 +690,9 @@ def write_standard_run_v2(
     project = _require_text(project, "project")
     run_id = _require_text(run_id, "run_id")
     code_version = _require_text(code_version, "code_version")
-    internal_dependency_map = _validate_string_map(
-        internal_dependencies, "internal_dependencies"
-    )
+    if not _GIT_COMMIT_PATTERN.fullmatch(code_version):
+        raise ValueError("code_version must be a full lowercase Git commit SHA")
+    internal_dependency_map = _validate_internal_dependencies(internal_dependencies)
     snapshot_map = _validate_string_map(dataset_snapshots, "dataset_snapshots")
     if not snapshot_map:
         raise ValueError("dataset_snapshots must identify at least one immutable snapshot")
@@ -880,6 +894,8 @@ def load_and_validate_run_v2(run_dir: Path) -> RunManifestV2:
     _require_text(manifest.project, "project")
     _require_text(manifest.run_id, "run_id")
     _require_text(manifest.code_version, "code_version")
+    if not _GIT_COMMIT_PATTERN.fullmatch(manifest.code_version):
+        raise ValueError("code_version must be a full lowercase Git commit SHA")
     if manifest.status != "complete":
         raise ValueError("Only complete standard/v2 runs are consumable")
     _validate_created_at(manifest.created_at)
@@ -889,7 +905,7 @@ def load_and_validate_run_v2(run_dir: Path) -> RunManifestV2:
         _require_text(strategy_id, "strategy_id")
     if isinstance(manifest.random_seed, bool) or not isinstance(manifest.random_seed, int):
         raise ValueError("random_seed must be an integer")
-    _validate_string_map(manifest.internal_dependencies, "internal_dependencies")
+    _validate_internal_dependencies(manifest.internal_dependencies)
     snapshots = _validate_string_map(manifest.dataset_snapshots, "dataset_snapshots")
     if not snapshots:
         raise ValueError("dataset_snapshots must not be empty")
