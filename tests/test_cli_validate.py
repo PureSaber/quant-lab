@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 
+from test_contracts_v2 import _write_v2
+
 from quant_lab.cli import main
 from quant_lab.contracts import write_standard_run
-from test_contracts_v2 import _write_v2
 
 
 def test_cli_validates_standard_run(tmp_path, capsys) -> None:

@@ -7,15 +7,16 @@ import json
 import math
 import re
 import shutil
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 from uuid import uuid4
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -192,7 +193,7 @@ _INTEGER_COLUMNS = {
     column
     for columns in ARTIFACT_SCHEMAS_V2.values()
     for column in columns
-    if column.endswith("_units") or column.endswith("_scale")
+    if column.endswith(("_units", "_scale"))
 } | {"event_sequence", "posting_index"}
 _SCALE_COLUMNS = {column for column in _INTEGER_COLUMNS if column.endswith("_scale")}
 _FLOAT_COLUMNS = {"gross_return", "net_return", "nav", "value"}
@@ -365,7 +366,7 @@ def _require_text(value: Any, field_name: str) -> str:
 
 def _validate_string_map(value: Mapping[str, str], field_name: str) -> dict[str, str]:
     if not isinstance(value, Mapping):
-        raise ValueError(f"{field_name} must be a mapping")
+        raise TypeError(f"{field_name} must be a mapping")
     result: dict[str, str] = {}
     for key, item in value.items():
         result[_require_text(key, f"{field_name} key")] = _require_text(
@@ -409,14 +410,14 @@ def _validate_lineage(
     dataset_names: set[str],
 ) -> dict[str, list[str]]:
     if not isinstance(lineage, Mapping):
-        raise ValueError("lineage must be a mapping")
+        raise TypeError("lineage must be a mapping")
     normalized: dict[str, list[str]] = {}
     for node, sources in lineage.items():
         node = _require_text(node, "lineage node")
         if node not in artifact_names:
             raise ValueError(f"Lineage node is not a declared artifact: {node}")
         if isinstance(sources, (str, bytes)) or not isinstance(sources, Sequence):
-            raise ValueError(f"Lineage sources for {node} must be a sequence")
+            raise TypeError(f"Lineage sources for {node} must be a sequence")
         clean_sources = [_require_text(source, f"lineage[{node}]") for source in sources]
         if len(clean_sources) != len(set(clean_sources)):
             raise ValueError(f"Lineage sources contain duplicates: {node}")
@@ -508,9 +509,10 @@ def _prepare_frame(name: str, frame: pd.DataFrame) -> pd.DataFrame:
         elif column != "event_time":
             present = result[column].dropna()
             allow_empty = column == "reason"
-            if not present.map(
-                lambda value: isinstance(value, str) and (allow_empty or bool(value))
-            ).all():
+            valid_strings = present.map(lambda value: isinstance(value, str))
+            if not allow_empty:
+                valid_strings &= present.map(bool)
+            if not valid_strings.all():
                 raise ValueError(f"Artifact {name}.{column} must contain non-empty strings")
             result[column] = result[column].astype("string")
 
@@ -687,12 +689,12 @@ def write_standard_run_v2(
             f"v2 frames mismatch: missing={sorted(missing_frames)}, extra={sorted(unknown_frames)}"
         )
     if not isinstance(metrics, Mapping) or not isinstance(config, Mapping):
-        raise ValueError("metrics and config must be mappings")
+        raise TypeError("metrics and config must be mappings")
     strategy_list = [_require_text(item, "strategy_id") for item in strategy_ids]
     if not strategy_list or len(strategy_list) != len(set(strategy_list)):
         raise ValueError("strategy_ids must be non-empty and unique")
     if isinstance(random_seed, bool) or not isinstance(random_seed, int):
-        raise ValueError("random_seed must be an integer")
+        raise TypeError("random_seed must be an integer")
 
     project = _require_text(project, "project")
     run_id = _require_text(run_id, "run_id")
@@ -861,7 +863,7 @@ def _validate_json_artifact(
     except json.JSONDecodeError as exc:
         raise ValueError(f"Artifact is not valid JSON: {record.name}") from exc
     if not isinstance(payload, dict):
-        raise ValueError(f"Artifact {record.name} must contain a JSON object")
+        raise TypeError(f"Artifact {record.name} must contain a JSON object")
     if record.rows != 1 or record.columns != sorted(payload):
         raise ValueError(f"Artifact metadata mismatch: {record.name}")
     if any(
@@ -911,7 +913,7 @@ def load_and_validate_run_v2(run_dir: Path) -> RunManifestV2:
     for strategy_id in manifest.strategy_ids:
         _require_text(strategy_id, "strategy_id")
     if isinstance(manifest.random_seed, bool) or not isinstance(manifest.random_seed, int):
-        raise ValueError("random_seed must be an integer")
+        raise TypeError("random_seed must be an integer")
     _validate_internal_dependencies(manifest.internal_dependencies)
     snapshots = _validate_string_map(manifest.dataset_snapshots, "dataset_snapshots")
     if not snapshots:
