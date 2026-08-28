@@ -226,7 +226,7 @@ def test_v2_reader_rejects_changed_arrow_physical_type(tmp_path: Path) -> None:
     run = tmp_path / "wrong-arrow"
     _write_v2(run)
     base = run / "standard" / "v2"
-    artifact_path = base / "artifacts" / "returns.parquet"
+    artifact_path = base / "returns.parquet"
     frame = pq.read_table(artifact_path).to_pandas()
     frame["strategy_id"] = frame["strategy_id"].astype("string")
     frame.to_parquet(artifact_path, engine="pyarrow", index=False)
