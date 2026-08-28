@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from quant_lab.contracts import load_and_validate_run
+from quant_lab.contracts_v2 import RunManifestV2, load_and_validate_standard_run
 
 KNOWN_MARKERS: dict[str, tuple[str, ...]] = {
     "a-share-multifactor": ("capital_curves.csv", "ic_summary.csv", "report.html"),
@@ -95,17 +95,23 @@ def scan_run(run_path: Path, *, project: str = "") -> ScannedRun | None:
     metrics: dict = {"files": [p.name for p in run_path.iterdir() if p.is_file()][:20]}
     run_type = "unknown"
 
-    standard_manifest = run_path / "standard" / "run_manifest.json"
-    if standard_manifest.is_file():
-        manifest = load_and_validate_run(run_path)
-        metrics_path = run_path / "standard" / "metrics.json"
+    v2_dir = run_path / "standard" / "v2"
+    v1_manifest = run_path / "standard" / "run_manifest.json"
+    if v2_dir.exists() or v1_manifest.is_file():
+        manifest = load_and_validate_standard_run(run_path)
+        is_v2 = isinstance(manifest, RunManifestV2)
+        metrics_path = (
+            run_path / "standard" / "v2" / "metrics.json"
+            if is_v2
+            else run_path / "standard" / "metrics.json"
+        )
         standard_metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
         metrics.update(standard_metrics)
         metrics["schema_version"] = manifest.schema_version
         metrics["code_version"] = manifest.code_version
         metrics["dataset_snapshots"] = manifest.dataset_snapshots
         project_name = manifest.project
-        run_type = "standard_backtest"
+        run_type = f"standard_v2_{manifest.profile}" if is_v2 else "standard_backtest"
 
     cap = run_path / "capital_curves.csv"
     if cap.is_file():
@@ -120,23 +126,23 @@ def scan_run(run_path: Path, *, project: str = "") -> ScannedRun | None:
             run_type = "spread_backtest"
 
     synth = run_path / "synthesis_comparison_summary.csv"
-    if synth.is_file():
+    if synth.is_file() and run_type == "unknown":
         df = pd.read_csv(synth)
         metrics["synthesis_rows"] = len(df)
         run_type = "multifactor_compare"
 
     fi = run_path / "feature_importance.csv"
-    if fi.is_file():
+    if fi.is_file() and run_type == "unknown":
         metrics["feature_importance_rows"] = len(pd.read_csv(fi))
         run_type = "sklearn_ml"
 
     review_manifest = run_path / "review_manifest.json"
-    if review_manifest.is_file():
+    if review_manifest.is_file() and run_type == "unknown":
         metrics["review_manifest"] = True
         run_type = "agent_review"
 
     factor_manifest = run_path / "factor_manifest.json"
-    if factor_manifest.is_file():
+    if factor_manifest.is_file() and run_type == "unknown":
         try:
             manifest = json.loads(factor_manifest.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
@@ -147,7 +153,11 @@ def scan_run(run_path: Path, *, project: str = "") -> ScannedRun | None:
         run_type = "factor_run"
 
     config_path = ""
-    for candidate in (run_path / "config.yaml", run_path.parent / "configs" / "default.yaml"):
+    for candidate in (
+        run_path / "standard" / "v2" / "config.json",
+        run_path / "config.yaml",
+        run_path.parent / "configs" / "default.yaml",
+    ):
         if candidate.is_file():
             config_path = str(candidate)
             break
