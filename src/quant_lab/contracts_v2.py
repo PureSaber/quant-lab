@@ -218,9 +218,7 @@ _NULLABLE_COLUMNS_V2: dict[str, frozenset[str]] = {
     "order_events": frozenset({"fill_quantity_units", "fill_quantity_scale"}),
     "fills": frozenset({"venue_trade_id"}),
     "costs": frozenset({"fill_id"}),
-    "cash_ledger": frozenset(
-        {"instrument_id", "quantity_delta_units", "quantity_delta_scale"}
-    ),
+    "cash_ledger": frozenset({"instrument_id", "quantity_delta_units", "quantity_delta_scale"}),
     "attribution": frozenset({"instrument_id"}),
 }
 _NULLABLE_PAIRS_V2: dict[str, tuple[tuple[str, str], ...]] = {
@@ -238,9 +236,7 @@ _ENUM_VALUES_V2: dict[tuple[str, str], frozenset[str]] = {
     ("orders", "status"): frozenset(
         {"created", "accepted", "partially_filled", "filled", "cancelled", "rejected", "expired"}
     ),
-    ("order_events", "from_status"): frozenset(
-        {"created", "accepted", "partially_filled"}
-    ),
+    ("order_events", "from_status"): frozenset({"created", "accepted", "partially_filled"}),
     ("order_events", "to_status"): frozenset(
         {"accepted", "partially_filled", "filled", "cancelled", "rejected", "expired"}
     ),
@@ -391,9 +387,7 @@ def _validate_internal_dependencies(value: Mapping[str, str]) -> dict[str, str]:
     result = _validate_string_map(value, "internal_dependencies")
     for name, version in result.items():
         if not _RELEASE_VERSION_PATTERN.fullmatch(version):
-            raise ValueError(
-                f"internal_dependencies[{name!r}] must be an exact release or commit"
-            )
+            raise ValueError(f"internal_dependencies[{name!r}] must be an exact release or commit")
     return result
 
 
@@ -436,7 +430,10 @@ def _validate_lineage(
         for source in clean_sources:
             if source in artifact_names:
                 continue
-            if not source.startswith("dataset:") or source.removeprefix("dataset:") not in dataset_names:
+            if (
+                not source.startswith("dataset:")
+                or source.removeprefix("dataset:") not in dataset_names
+            ):
                 raise ValueError(f"Lineage source is not declared: {source}")
         normalized[node] = clean_sources
     if set(normalized) != artifact_names:
@@ -478,7 +475,9 @@ def _validate_utc_series(series: pd.Series, artifact_name: str) -> pd.Series:
         if timestamp.utcoffset() != timezone.utc.utcoffset(timestamp.to_pydatetime()):
             raise ValueError(f"Artifact {artifact_name} event_time must be stored as UTC")
         parsed_values.append(timestamp.tz_convert("UTC"))
-    return pd.Series(parsed_values, index=series.index, name=series.name, dtype="datetime64[ns, UTC]")
+    return pd.Series(
+        parsed_values, index=series.index, name=series.name, dtype="datetime64[ns, UTC]"
+    )
 
 
 def _prepare_frame(name: str, frame: pd.DataFrame) -> pd.DataFrame:
@@ -588,9 +587,7 @@ def _validate_frame_domain(name: str, frame: pd.DataFrame) -> None:
                 raise ValueError("Artifact orders filled quantity exceeds requested quantity")
             if row.version < 0:
                 raise ValueError("Artifact orders.version must be non-negative")
-            if row.status == "created" and (
-                row.version != 0 or row.filled_quantity_units != 0
-            ):
+            if row.status == "created" and (row.version != 0 or row.filled_quantity_units != 0):
                 raise ValueError("Artifact orders created state is inconsistent")
             if row.status in {"accepted", "rejected"} and (
                 row.version < 1 or row.filled_quantity_units != 0
@@ -615,9 +612,7 @@ def _validate_frame_domain(name: str, frame: pd.DataFrame) -> None:
             sequences = events["event_sequence"].astype(int).tolist()
             expected = list(range(1, len(events) + 1))
             if sequences != expected:
-                raise ValueError(
-                    f"Artifact order_events sequence is not continuous for {order_id}"
-                )
+                raise ValueError(f"Artifact order_events sequence is not continuous for {order_id}")
             if events.iloc[0]["from_status"] != "created":
                 raise ValueError(
                     f"Artifact order_events chain must start from created for {order_id}"
@@ -625,9 +620,7 @@ def _validate_frame_domain(name: str, frame: pd.DataFrame) -> None:
             prior_status: str | None = None
             for row in events.itertuples(index=False):
                 if prior_status is not None and row.from_status != prior_status:
-                    raise ValueError(
-                        f"Artifact order_events state chain is broken for {order_id}"
-                    )
+                    raise ValueError(f"Artifact order_events state chain is broken for {order_id}")
                 is_fill = row.to_status in {"partially_filled", "filled"}
                 has_fill = not pd.isna(row.fill_quantity_units)
                 if is_fill != has_fill:
@@ -879,13 +872,9 @@ def write_standard_run_v2(
     instrument_master_version = _require_text(
         instrument_master_version, "instrument_master_version"
     )
-    execution_model_version = _require_text(
-        execution_model_version, "execution_model_version"
-    )
+    execution_model_version = _require_text(execution_model_version, "execution_model_version")
     base_currency = _validate_currency(base_currency)
-    capability_list = sorted(
-        {_require_text(item, "capability") for item in (capabilities or [])}
-    )
+    capability_list = sorted({_require_text(item, "capability") for item in (capabilities or [])})
     tag_map = _validate_string_map(tags or {}, "tags")
     created_at_value = _validate_created_at(created_at)
 
@@ -897,9 +886,7 @@ def write_standard_run_v2(
     temp_dir = standard_dir / f".v2-tmp-{uuid4().hex}"
     temp_dir.mkdir(parents=False, exist_ok=False)
     try:
-        prepared_frames = {
-            name: _prepare_frame(name, frame) for name, frame in frames.items()
-        }
+        prepared_frames = {name: _prepare_frame(name, frame) for name, frame in frames.items()}
         _validate_cross_artifact_domain(prepared_frames)
         config_payload = dict(config)
         metrics_payload = dict(metrics)
@@ -924,9 +911,7 @@ def write_standard_run_v2(
                 safe=True,
             )
             pq.write_table(table, path)
-            records.append(
-                _parquet_record(name, path, prepared, required=name in required_frames)
-            )
+            records.append(_parquet_record(name, path, prepared, required=name in required_frames))
 
         artifact_names = {record.name for record in records}
         lineage_map = _validate_lineage(lineage, artifact_names, set(snapshot_map))
@@ -1013,8 +998,7 @@ def _validate_parquet_artifact(base: Path, record: ArtifactRecordV2) -> pd.DataF
     for arrow_field, expected_field in zip(table.schema, expected_schema, strict=True):
         if arrow_field != expected_field:
             raise ValueError(
-                f"Artifact {record.name}.{arrow_field.name} has invalid Arrow field "
-                f"{arrow_field}"
+                f"Artifact {record.name}.{arrow_field.name} has invalid Arrow field {arrow_field}"
             )
     metadata = table.schema.metadata or {}
     if metadata.get(b"schema_id") != f"puresaber.run.{record.name}".encode("ascii"):
@@ -1032,9 +1016,7 @@ def _validate_parquet_artifact(base: Path, record: ArtifactRecordV2) -> pd.DataF
     return prepared
 
 
-def _validate_json_artifact(
-    base: Path, record: ArtifactRecordV2
-) -> dict[str, Any]:
+def _validate_json_artifact(base: Path, record: ArtifactRecordV2) -> dict[str, Any]:
     path = _safe_artifact_path(base, record.path)
     if record.path != f"{record.name}.json":
         raise ValueError(f"Artifact path does not match its name: {record.name}")

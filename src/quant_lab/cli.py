@@ -107,7 +107,9 @@ def cmd_init(args: argparse.Namespace) -> int:
             {"name": "future_spread", "outputs": "../future_spread_analysis-team-framework/output"},
         ],
     }
-    cfg_path.write_text(yaml.safe_dump(template, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    cfg_path.write_text(
+        yaml.safe_dump(template, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
     print(f"Wrote {cfg_path}")
     return 0
 
