@@ -91,9 +91,7 @@ def _frames(names: tuple[str, ...]) -> dict[str, pd.DataFrame]:
         result["order_events"]["fill_quantity_scale"] = None
     if {"orders", "order_events", "fills"}.issubset(result):
         result["orders"].loc[0, "status"] = "filled"
-        result["orders"].loc[0, "filled_quantity_units"] = result["orders"].loc[
-            0, "quantity_units"
-        ]
+        result["orders"].loc[0, "filled_quantity_units"] = result["orders"].loc[0, "quantity_units"]
         result["orders"].loc[0, "version"] = 2
         accepted = result["order_events"].iloc[0].to_dict()
         filled = dict(accepted)
@@ -120,9 +118,7 @@ def _write_v2(
     frames: dict[str, pd.DataFrame] | None = None,
     internal_dependencies: dict[str, str] | None = None,
 ):
-    selected = frames or _frames(
-        ("returns", "positions", "portfolio_snapshots", "exposures")
-    )
+    selected = frames or _frames(("returns", "positions", "portfolio_snapshots", "exposures"))
     lineage = {name: ["dataset:prices"] for name in ("metrics", *selected)}
     lineage["config"] = []
     return write_standard_run_v2(
@@ -187,7 +183,10 @@ def test_v2_backtest_ledger_profile_requires_and_validates_every_artifact(
     assert len(manifest.artifacts) == len(ARTIFACT_SCHEMAS_V2) + 2
     required = {record.name for record in manifest.artifacts if record.required}
     assert required == {"config", "metrics", *PROFILE_ARTIFACTS_V2[BACKTEST_LEDGER_PROFILE]}
-    assert next(record for record in manifest.artifacts if record.name == "attribution").required is False
+    assert (
+        next(record for record in manifest.artifacts if record.name == "attribution").required
+        is False
+    )
     assert load_and_validate_run_v2(tmp_path / "ledger").profile == BACKTEST_LEDGER_PROFILE
 
 
@@ -262,16 +261,12 @@ def test_v2_rejects_naive_time_wrong_columns_and_non_finite_values(tmp_path: Pat
     with pytest.raises(ValueError, match="timezone-naive"):
         _write_v2(tmp_path / "naive", frames=naive)
 
-    wrong_columns = _frames(
-        ("returns", "positions", "portfolio_snapshots", "exposures")
-    )
+    wrong_columns = _frames(("returns", "positions", "portfolio_snapshots", "exposures"))
     wrong_columns["returns"]["unexpected"] = "x"
     with pytest.raises(ValueError, match="columns must exactly match"):
         _write_v2(tmp_path / "columns", frames=wrong_columns)
 
-    non_finite = _frames(
-        ("returns", "positions", "portfolio_snapshots", "exposures")
-    )
+    non_finite = _frames(("returns", "positions", "portfolio_snapshots", "exposures"))
     non_finite["returns"]["net_return"] = float("inf")
     with pytest.raises(ValueError, match="NaN or infinity"):
         _write_v2(tmp_path / "infinity", frames=non_finite)
@@ -310,9 +305,7 @@ def test_v2_order_prices_preserve_explicit_nullable_pairs(tmp_path: Path) -> Non
     _write_v2(tmp_path / "market-order", frames=frames)
     assert load_and_validate_run_v2(tmp_path / "market-order").profile == RESEARCH_PROFILE
 
-    mismatched = _frames(
-        ("returns", "positions", "portfolio_snapshots", "exposures", "orders")
-    )
+    mismatched = _frames(("returns", "positions", "portfolio_snapshots", "exposures", "orders"))
     mismatched["orders"].loc[0, "limit_price_units"] = None
     with pytest.raises(ValueError, match="nullable pair mismatch"):
         _write_v2(tmp_path / "bad-pair", frames=mismatched)
