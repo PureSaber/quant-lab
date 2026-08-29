@@ -13,7 +13,8 @@ cd quant-lab
 python -m venv .venv
 .venv\Scripts\activate
 python -m pip install --requirement requirements.lock
-python -m pip install --no-deps --editable .
+python -m pip install --no-deps --no-build-isolation --editable .
+python -m pip check
 ```
 
 ## Quick start
@@ -60,10 +61,13 @@ manifest = load_and_validate_standard_run("outputs/run_001")
 `[tool.quant-workspace]`，由全栈清单校验。任何契约字段或schema变更必须先更新
 黄金样例、兼容测试和迁移说明；`standard/v1`历史产物只读且不可改写。
 
-`requirements.lock`同时覆盖运行时和开发依赖，CI先按锁文件安装，再以
-`--no-deps`安装本仓库。更新锁文件时应在干净分支重新解析并运行完整测试、覆盖率、
+`requirements.lock`同时覆盖运行时、开发和editable构建依赖，CI先按锁文件安装，再以
+`--no-deps --no-build-isolation`安装本仓库。更新锁文件时应在干净分支重新解析并运行完整测试、覆盖率、
 `pip check`和跨仓清单校验，锁文件与代码一并提交。若发布验证失败，回滚到上一个
 默认分支提交及其锁文件；不得移动旧tag，也不得修改已生成的研究产物。
+
+锁文件使用`pip-compile --extra dev --build-deps-for editable --allow-unsafe --strip-extras`
+生成，禁止在锁之外临时解析构建后端。
 
 ## Related
 
