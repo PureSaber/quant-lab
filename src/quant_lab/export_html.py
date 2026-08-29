@@ -35,7 +35,7 @@ def render_dashboard(store: ExperimentStore) -> str:
               <h3>{_esc(row.project)} / {_esc(row.run_id)}</h3>
               <p class="meta">{_esc(row.run_type)} · {_esc(row.scanned_at)}</p>
               <p class="path">{_esc(row.run_path)}</p>
-              <ul>{''.join(metric_bits) or '<li>No metrics</li>'}</ul>
+              <ul>{"".join(metric_bits) or "<li>No metrics</li>"}</ul>
             </article>
             """
         )
@@ -46,7 +46,7 @@ def render_dashboard(store: ExperimentStore) -> str:
         factor_panel = f"""
   <section>
     <h2>Factor Runs</h2>
-    <ul>{''.join(factor_cards)}</ul>
+    <ul>{"".join(factor_cards)}</ul>
   </section>
 """
     return f"""<!doctype html>
