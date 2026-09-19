@@ -520,9 +520,9 @@ def _prepare_frame(name: str, frame: pd.DataFrame) -> pd.DataFrame:
         elif column != "event_time":
             present = result[column].dropna()
             allow_empty = column == "reason"
-            valid_strings = present.map(lambda value: isinstance(value, str))
+            valid_strings = present.map(lambda value: isinstance(value, str)).astype(bool)
             if not allow_empty:
-                valid_strings &= present.map(bool)
+                valid_strings &= present.map(bool).astype(bool)
             if not valid_strings.all():
                 raise ValueError(f"Artifact {name}.{column} must contain non-empty strings")
             result[column] = result[column].astype("string")

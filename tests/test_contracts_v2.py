@@ -144,6 +144,15 @@ def _write_v2(
     )
 
 
+def test_empty_typed_execution_artifacts_roundtrip(tmp_path):
+    frames = _frames(PROFILE_ARTIFACTS_V2[BACKTEST_LEDGER_PROFILE])
+    for name in frames:
+        frames[name] = frames[name].iloc[:0]
+    _write_v2(tmp_path / "empty", profile=BACKTEST_LEDGER_PROFILE, frames=frames)
+    manifest = load_and_validate_run_v2(tmp_path / "empty")
+    assert manifest.profile == BACKTEST_LEDGER_PROFILE
+
+
 def test_v2_research_run_is_strict_immutable_and_scannable(tmp_path: Path) -> None:
     run = tmp_path / "r1"
     manifest = _write_v2(run)
