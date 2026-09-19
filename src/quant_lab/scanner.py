@@ -152,6 +152,15 @@ def scan_run(run_path: Path, *, project: str = "") -> ScannedRun | None:
         metrics["factor_count"] = len(manifest.get("factors") or [])
         run_type = "factor_run"
 
+    decision = run_path / "decision.json"
+    if decision.is_file():
+        card = json.loads(decision.read_text(encoding="utf-8"))
+        metrics["decision_status"] = card["status"]
+        metrics["decision_reasons"] = card.get("reasons", [])
+        metrics["validation"] = card.get("validation", {})
+        if run_type == "unknown":
+            run_type = "decision_attempt"
+
     config_path = ""
     for candidate in (
         run_path / "standard" / "v2" / "config.json",
