@@ -151,6 +151,7 @@ def test_incompatible_comparisons_and_nonfinite_costs(recipe):
     "patch",
     [
         {"risk": {"max_estimated_cost_rate": 0.01}},
+        {"risk": {"max_positions": 1.5}},
         {"risk": {"drawdown_action": "liquidate"}},
         {"risk": {"max_drawdown": 0.1, "drawdown_action": "resume"}},
         {"neutralization": ["industry"]},

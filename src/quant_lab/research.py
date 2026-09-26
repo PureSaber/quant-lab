@@ -217,7 +217,12 @@ def validate_recipe(value: dict) -> dict:
     for field, number in recipe.get("risk", {}).items():
         if field in {"drawdown_action", "industry_field", "max_industry_weight"}:
             continue
-        _number(number, field, upper=1000 if field == "max_positions" else 1)
+        _number(
+            number,
+            field,
+            upper=1000 if field == "max_positions" else 2 if field == "max_turnover" else 1,
+            integer=field == "max_positions",
+        )
     from quant_lab.research_options import validate_risk
 
     validate_risk(recipe)
