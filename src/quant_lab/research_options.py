@@ -109,6 +109,8 @@ def validate_risk(recipe):
     risk = recipe.get("risk", {})
     if risk.get("drawdown_action", "halt") not in {"halt", "liquidate"}:
         raise ValueError("drawdown_action must be halt or liquidate")
+    if risk.get("exposure_breach_action", "halt") not in {"halt", "liquidate"}:
+        raise ValueError("exposure_breach_action must be halt or liquidate")
     if "drawdown_action" in risk and "max_drawdown" not in risk:
         raise ValueError("drawdown_action requires max_drawdown")
     if "max_estimated_cost_rate" in risk and "estimated_cost_rate_per_turnover" not in risk:

@@ -209,13 +209,19 @@ def validate_recipe(value: dict) -> dict:
             "max_estimated_cost_rate",
             "estimated_cost_rate_per_turnover",
             "drawdown_action",
+            "exposure_breach_action",
             "max_industry_weight",
             "industry_field",
         },
         "risk",
     )
     for field, number in recipe.get("risk", {}).items():
-        if field in {"drawdown_action", "industry_field", "max_industry_weight"}:
+        if field in {
+            "drawdown_action",
+            "exposure_breach_action",
+            "industry_field",
+            "max_industry_weight",
+        }:
             continue
         _number(
             number,
