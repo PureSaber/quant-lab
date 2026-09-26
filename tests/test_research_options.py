@@ -4,7 +4,16 @@ from quant_lab.research_options import (
     validate_allocation,
     validate_execution,
     validate_options,
+    validate_validation,
 )
+
+
+def test_training_direction_needs_mature_labels_inside_training_window():
+    config = {"train_sessions": 6, "test_sessions": 10, "embargo_sessions": 5,
+              "direction_policy": "train_ic", "direction_horizon": 5}
+    with pytest.raises(ValueError, match="mature direction labels"):
+        validate_validation(config)
+    assert validate_validation({**config, "train_sessions": 7})["train_sessions"] == 7
 
 
 def test_allocation_and_history_contracts():

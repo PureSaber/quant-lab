@@ -33,6 +33,8 @@ def validate_validation(value: dict) -> dict:
         raise ValueError("direction_horizon must be 1, 5 or 20")
     if result["embargo_sessions"] < result["direction_horizon"]:
         raise ValueError("Embargo must cover the declared label horizon")
+    if result["direction_policy"] == "train_ic" and result["train_sessions"] < result["direction_horizon"] + 2:
+        raise ValueError("Training window cannot produce two mature direction labels")
     alpha = result["fdr_alpha"]
     if isinstance(alpha, bool) or not isinstance(alpha, (int, float)) or not 0 < alpha < 1:
         raise ValueError("Invalid FDR alpha")
