@@ -41,6 +41,10 @@ ROOT_FIELDS = {
     "source",
     "required_history",
     "backend_parameters",
+    "factor_expressions",
+    "validation",
+    "allocation",
+    "execution",
 }
 STRATEGY_FIELDS = {"family", "frequency", "top_n", "max_weight", "cash_buffer", "trend_window"}
 COST_FIELDS = {
@@ -58,6 +62,7 @@ VARIANT_FIELDS = {
     "cost_multiplier",
     "signal_delay",
     "backend_parameters",
+    "allocation",
 }
 
 
@@ -98,6 +103,9 @@ def validate_recipe(value: dict) -> dict:
         raise ValueError("Research mode must be explicit")
     if recipe.get("backend") not in {"equity", "futures_fixture", "crypto_fixture"}:
         raise ValueError("Unknown research backend")
+    from quant_lab.research_options import validate_options
+
+    validate_options(recipe)
     backend_params = _closed(
         recipe.get("backend_parameters", {}),
         {"entry_basis_bps", "exit_basis_bps", "minimum_funding_rate", "quantity", "passive_limits"}
@@ -242,6 +250,8 @@ def validate_recipe(value: dict) -> dict:
         changed["factors"] = variant.get("factors", factors)
         changed["strategy"] = {**strategy, **variant.get("strategy", {})}
         changed["backend_parameters"] = {**backend_params, **variant.get("backend_parameters", {})}
+        if "allocation" in variant:
+            changed["allocation"] = variant["allocation"]
         validate_recipe(changed)
     canonical(recipe)
     return recipe
@@ -265,6 +275,8 @@ def candidates(recipe: dict) -> list[dict]:
         "signal_delay": 0,
         "backend_parameters": recipe.get("backend_parameters", {}),
     }
+    if "allocation" in recipe:
+        base["allocation"] = recipe["allocation"]
     rows = [base]
     if recipe["backend"] == "equity":
         rows.append(
