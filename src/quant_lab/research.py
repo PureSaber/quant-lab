@@ -45,6 +45,8 @@ ROOT_FIELDS = {
     "validation",
     "allocation",
     "execution",
+    "neutralization",
+    "risk_model",
 }
 STRATEGY_FIELDS = {"family", "frequency", "top_n", "max_weight", "cash_buffer", "trend_window"}
 COST_FIELDS = {
@@ -206,11 +208,19 @@ def validate_recipe(value: dict) -> dict:
             "max_turnover",
             "max_estimated_cost_rate",
             "estimated_cost_rate_per_turnover",
+            "drawdown_action",
+            "max_industry_weight",
+            "industry_field",
         },
         "risk",
     )
     for field, number in recipe.get("risk", {}).items():
+        if field in {"drawdown_action", "industry_field", "max_industry_weight"}:
+            continue
         _number(number, field, upper=1000 if field == "max_positions" else 1)
+    from quant_lab.research_options import validate_risk
+
+    validate_risk(recipe)
     diagnostics = _closed(
         recipe.get("diagnostics", {}),
         {"single_factors", "ablations", "cost_multipliers", "signal_delays", "frequencies"},
