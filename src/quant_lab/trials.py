@@ -25,6 +25,13 @@ class TrialRegistry:
                 CREATE TABLE IF NOT EXISTS studies (
                     study_id TEXT PRIMARY KEY, definition TEXT NOT NULL,
                     sha256 TEXT NOT NULL, registered_at TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS research_families (
+                    family_id TEXT PRIMARY KEY, definition TEXT NOT NULL,
+                    sha256 TEXT NOT NULL, registered_at TEXT NOT NULL);
+                CREATE TRIGGER IF NOT EXISTS families_no_update BEFORE UPDATE ON research_families
+                    BEGIN SELECT RAISE(ABORT, 'research families are immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS families_no_delete BEFORE DELETE ON research_families
+                    BEGIN SELECT RAISE(ABORT, 'research families are immutable'); END;
                 CREATE TABLE IF NOT EXISTS trial_events (
                     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
                     study_id TEXT NOT NULL REFERENCES studies(study_id),
@@ -59,6 +66,14 @@ class TrialRegistry:
         for field in ("hypothesis", "parameters", "code_identity", "selection_rule"):
             if not definition.get(field):
                 raise ValueError(f"Missing study field: {field}")
+        if "objective" in definition:
+            from quant_lab.objectives import validate_objective
+
+            validate_objective(definition["objective"])
+        if definition.get("family_id"):
+            family = self.family(definition["family_id"])
+            if study_id not in family["definition"]["study_ids"]:
+                raise ValueError("Study was not preregistered in this research family")
         payload = canonical(definition)
         digest = hashlib.sha256(payload.encode()).hexdigest()
         with self.connect() as db:
@@ -80,6 +95,93 @@ class TrialRegistry:
                 "INSERT INTO studies VALUES (?,?,?,?)", (study_id, payload, digest, now.isoformat())
             )
         return digest
+
+    def register_family(self, family_id: str, definition: dict, *, now=None) -> str:
+        """Declare all member studies before any of them starts; no post-hoc family edits."""
+        now = now or datetime.now(timezone.utc)
+        studies = definition.get("study_ids", [])
+        if (
+            not family_id.strip()
+            or now.tzinfo is None
+            or not studies
+            or len(studies) != len(set(studies))
+            or any(not isinstance(s, str) or not s.strip() for s in studies)
+            or not definition.get("hypothesis")
+            or not definition.get("basis")
+        ):
+            raise ValueError("Family requires hypothesis, common basis and distinct study IDs")
+        import pandas as pd
+
+        from quant_lab.selection import audit_family
+
+        audit_family(
+            pd.DataFrame(),
+            planned=studies,
+            statuses={s: "running" for s in studies},
+            family_id=family_id,
+            basis=definition["basis"],
+        )
+        payload = canonical(definition)
+        digest = hashlib.sha256(payload.encode()).hexdigest()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            existing = db.execute(
+                "SELECT sha256 FROM research_families WHERE family_id=?", (family_id,)
+            ).fetchone()
+            if existing:
+                if existing[0] != digest:
+                    raise ValueError(
+                        "Family changed; use a new ID and disclose the expanded search"
+                    )
+                return digest
+            present = {r[0] for r in db.execute("SELECT study_id FROM studies")}
+            if present & set(studies):
+                raise ValueError("Register the family before its member studies")
+            db.execute(
+                "INSERT INTO research_families VALUES (?,?,?,?)",
+                (family_id, payload, digest, now.isoformat()),
+            )
+        return digest
+
+    def family(self, family_id: str) -> dict:
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT definition,registered_at,sha256 FROM research_families WHERE family_id=?",
+                (family_id,),
+            ).fetchone()
+        if row is None:
+            raise ValueError("Unknown preregistered research family")
+        return {"definition": json.loads(row[0]), "registered_at": row[1], "sha256": row[2]}
+
+    def family_inventory(self, family_id: str) -> dict:
+        family = self.family(family_id)
+        studies = []
+        for study_id in family["definition"]["study_ids"]:
+            try:
+                spec = self.definition(study_id)
+            except ValueError:
+                studies.append({"study_id": study_id, "status": "not_registered", "attempts": []})
+                continue
+            if spec["definition"].get("family_id") != family_id:
+                raise ValueError("Member study did not declare its family identity")
+            events = self.history(study_id)
+            latest = {event["attempt_id"]: event for event in events}
+            studies.append(
+                {
+                    "study_id": study_id,
+                    "definition": spec,
+                    "planned": spec["definition"]["parameters"],
+                    "attempts": list(latest.values()),
+                    "events": events,
+                }
+            )
+        return {
+            "family_id": family_id,
+            **family,
+            "studies": studies,
+            "attempt_count": sum(len(s["attempts"]) for s in studies),
+            "policy": "all attempts retained, including failed/interrupted/retried trials",
+        }
 
     def start(self, study_id: str, parameters: dict, *, context: dict | None = None) -> str:
         attempt = uuid.uuid4().hex
