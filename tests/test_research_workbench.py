@@ -145,3 +145,49 @@ def test_incompatible_comparisons_and_nonfinite_costs(recipe):
     with pytest.raises(ValueError, match="finite"):
         validate_recipe(recipe)
     json.dumps(compare_results([]), allow_nan=False)
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"risk": {"max_estimated_cost_rate": 0.01}},
+        {"risk": {"max_positions": 1.5}},
+        {"risk": {"drawdown_action": "liquidate"}},
+        {"risk": {"max_drawdown": 0.1, "drawdown_action": "resume"}},
+        {"neutralization": ["industry"]},
+        {"risk_model": {"model_kind": "statistical_proxy"}},
+        {"allocation": {"mode": "cost_aware"}, "risk_model": {"model_kind": "fundamental_style"}},
+        {
+            "allocation": {"mode": "cost_aware"},
+            "risk_model": {"model_kind": "statistical_proxy", "max_tracking_error": 0.1},
+        },
+        {"risk": {"max_industry_weight": 0.5, "industry_field": "sector"}},
+    ],
+)
+def test_risk_extensions_reject_unwired_or_ambiguous_configuration(recipe, patch):
+    with pytest.raises(ValueError):
+        validate_recipe({**recipe, **patch})
+
+
+def test_risk_model_and_pit_industry_contract(recipe):
+    recipe.update(
+        allocation={"mode": "cost_aware"},
+        required_history={"sector": "classification", "industry": "classification"},
+        neutralization=["industry"],
+        risk={
+            "max_drawdown": 0.1,
+            "drawdown_action": "liquidate",
+            "max_industry_weight": 0.5,
+            "industry_field": "sector",
+            "max_estimated_cost_rate": 0.01,
+            "estimated_cost_rate_per_turnover": 0.001,
+        },
+        risk_model={
+            "model_kind": "statistical_proxy",
+            "factor_bounds": {"market": [0, 0.9]},
+            "benchmark_weights": {"A": 0.5, "B": 0.5},
+            "active_factor_bounds": {"market": [-0.5, 0]},
+            "max_tracking_error": 0.3,
+        },
+    )
+    assert validate_recipe(recipe) == recipe
