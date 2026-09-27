@@ -17,6 +17,7 @@ def validate_validation(value: dict) -> dict:
         "direction_policy",
         "direction_horizon",
         "fdr_alpha",
+        "account_policy",
     }
     if not isinstance(value, dict) or set(value) - fields:
         raise ValueError("Unknown validation options")
@@ -28,10 +29,13 @@ def validate_validation(value: dict) -> dict:
         "direction_policy": "fixed",
         "direction_horizon": 1,
         "fdr_alpha": 0.05,
+        "account_policy": "independent",
         **value,
     }
     if result["method"] != "walk_forward":
         raise ValueError("validation method must be walk_forward")
+    if result["account_policy"] not in {"independent", "continuous"}:
+        raise ValueError("account_policy must be independent or continuous")
     for key in ("train_sessions", "test_sessions", "embargo_sessions"):
         if type(result.get(key)) is not int or result[key] < (
             2 if key != "embargo_sessions" else 1

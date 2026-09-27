@@ -1,5 +1,7 @@
 # quant-lab
 
+研究可信度升级：接口、使用示例、验收及限制见 [11–20 使用说明](docs/RESEARCH_INTEGRITY_11_20.md)。
+
 Cross-project experiment scanner and SQLite index for quant research outputs.
 
 `quant-lab`同时保留历史`standard/v1`读取能力，并提供严格、不可变的

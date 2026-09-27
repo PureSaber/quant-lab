@@ -47,6 +47,9 @@ ROOT_FIELDS = {
     "execution",
     "neutralization",
     "risk_model",
+    "family_id",
+    "objective",
+    "measurement_basis",
 }
 STRATEGY_FIELDS = {"family", "frequency", "top_n", "max_weight", "cash_buffer", "trend_window"}
 COST_FIELDS = {
@@ -95,6 +98,26 @@ def _number(value, name, *, lower=0, upper=None, integer=False):
 
 def validate_recipe(value: dict) -> dict:
     recipe = deepcopy(_closed(value, ROOT_FIELDS, "recipe"))
+    if "objective" in recipe:
+        from quant_lab.objectives import validate_objective
+
+        validate_objective(recipe["objective"])
+    if "measurement_basis" in recipe:
+        import pandas as pd
+
+        from quant_lab.selection import audit_family
+
+        audit_family(
+            pd.DataFrame(),
+            planned=["declared"],
+            statuses={"declared": "running"},
+            family_id="recipe",
+            basis=recipe["measurement_basis"],
+        )
+    if "family_id" in recipe and (
+        not isinstance(recipe["family_id"], str) or not recipe["family_id"].strip()
+    ):
+        raise ValueError("family_id must be a nonempty preregistered identifier")
     if recipe.get("schema_version") != SCHEMA:
         raise ValueError("Unsupported research recipe schema")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", recipe.get("study_id", "")):
@@ -393,7 +416,13 @@ def verify_result(path: Path, expected_sha: str) -> dict:
 
 
 def execute_study(
-    recipe: dict, root: Path, *, identity: dict, data_identity: dict, executor
+    recipe: dict,
+    root: Path,
+    *,
+    identity: dict,
+    data_identity: dict,
+    executor,
+    registry: TrialRegistry | None = None,
 ) -> dict:
     """Register ALL candidates before computation; preserve and resume every attempt."""
     recipe = validate_recipe(recipe)
@@ -407,12 +436,20 @@ def execute_study(
         "recipe": recipe,
         "data_identity": data_identity,
     }
+    for field in ("family_id", "objective"):
+        if field in recipe:
+            definition[field] = deepcopy(recipe[field])
     if recipe["mode"] == "prospective":
         definition.update(
             holdout_start=recipe["holdout"]["start"], holdout_end=recipe["holdout"]["end"]
         )
     with study_lock(root):
-        registry = TrialRegistry(root / "experiments.db")
+        registry = registry or TrialRegistry(root / "experiments.db")
+        if recipe.get("family_id") and (
+            recipe.get("measurement_basis")
+            != registry.family(recipe["family_id"])["definition"]["basis"]
+        ):
+            raise ValueError("family studies require the exact preregistered measurement_basis")
         registry.register(study, definition)
         history = registry.history(study)
         completed = {}
@@ -438,11 +475,34 @@ def execute_study(
                     raise ValueError("Cached result escapes study")
                 results.append(verify_result(path, cached["sha256"]))
                 continue
-            attempt = registry.start(study, candidate)
+            attempt = registry.start(
+                study, candidate, context={"artifact_root": str(root.resolve())}
+            )
             out = root / "attempts" / attempt
             out.mkdir(parents=True, exist_ok=False)
             try:
                 payload = executor(recipe, candidate, out)
+                if "measurement_basis" in recipe:
+                    basis = recipe["measurement_basis"]
+                    if payload.get("comparison", {}).get("currency") != basis["currency"]:
+                        raise ValueError(
+                            "executor currency differs from the declared measurement basis"
+                        )
+                    if payload.get("measurement_basis", basis) != basis:
+                        raise ValueError("executor measurement basis differs from preregistration")
+                    payload["measurement_basis"] = deepcopy(basis)
+                if "objective" in definition:
+                    from quant_lab.objectives import evaluate_objective
+
+                    objective_evidence = payload.get("investment_evidence")
+                    payload["objective_evaluation"] = (
+                        evaluate_objective(definition["objective"], objective_evidence)
+                        if objective_evidence is not None
+                        else {
+                            "status": "insufficient_evidence",
+                            "reason": "executor supplied no investment evidence",
+                        }
+                    )
                 payload.update(
                     schema_version="quant.research-result/v1",
                     candidate=candidate,
