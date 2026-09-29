@@ -10,6 +10,7 @@ import pandas as pd
 import yaml
 
 from quant_lab.contracts_v2 import RunManifestV2, load_and_validate_standard_run
+from quant_lab.ranking import is_rankable
 
 KNOWN_MARKERS: dict[str, tuple[str, ...]] = {
     "a-share-multifactor": ("capital_curves.csv", "ic_summary.csv", "report.html"),
@@ -110,6 +111,8 @@ def scan_run(run_path: Path, *, project: str = "") -> ScannedRun | None:
         metrics["schema_version"] = manifest.schema_version
         metrics["code_version"] = manifest.code_version
         metrics["dataset_snapshots"] = manifest.dataset_snapshots
+        metrics["rankable"] = is_rankable(manifest)
+        metrics["contract"] = "standard/v2" if is_v2 else "standard/v1"
         project_name = manifest.project
         run_type = f"standard_v2_{manifest.profile}" if is_v2 else "standard_backtest"
 
@@ -171,6 +174,9 @@ def scan_run(run_path: Path, *, project: str = "") -> ScannedRun | None:
             config_path = str(candidate)
             break
 
+    if "rankable" not in metrics:
+        metrics["rankable"] = False
+        metrics["contract"] = run_type
     return ScannedRun(
         project=project_name,
         run_id=run_path.name,
