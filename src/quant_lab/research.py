@@ -569,6 +569,10 @@ def compare_results(results: list[dict]) -> dict:
             for field in fields:
                 if result.get(field) != first.get(field):
                     mismatches.append({"candidate": result["candidate"]["name"], "field": field})
+            if result.get("rankable") is False or result.get("contract") == "standard/v1":
+                mismatches.append({"candidate": result["candidate"]["name"], "field": "rankable"})
+        if first.get("rankable") is False or first.get("contract") == "standard/v1":
+            mismatches.append({"candidate": first["candidate"]["name"], "field": "rankable"})
     return {
         "comparable": bool(completed) and not mismatches,
         "mismatches": mismatches,
