@@ -17,9 +17,15 @@ def canonical(value: dict) -> str:
 
 
 class TrialRegistry:
-    def __init__(self, path: Path):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.path = path
+    def __init__(self, path: Path, *, read_only: bool = False):
+        self.path = Path(path)
+        self.read_only = read_only
+        if read_only:
+            # Opening a reader must not create a registry or migrate an existing schema.
+            if not self.path.is_file():
+                raise FileNotFoundError(self.path)
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS studies (
@@ -55,11 +61,20 @@ class TrialRegistry:
             """)
 
     def connect(self):
-        db = sqlite3.connect(self.path, timeout=30)
+        if self.read_only:
+            db = sqlite3.connect(self.path.resolve().as_uri() + "?mode=ro", uri=True, timeout=30)
+            db.execute("PRAGMA query_only=ON")
+        else:
+            db = sqlite3.connect(self.path, timeout=30)
         db.execute("PRAGMA foreign_keys=ON")
         return db
 
+    def _require_writable(self):
+        if self.read_only:
+            raise PermissionError("Trial registry was opened read-only")
+
     def register(self, study_id: str, definition: dict, *, now: datetime | None = None) -> str:
+        self._require_writable()
         now = now or datetime.now(timezone.utc)
         if now.tzinfo is None or not study_id.strip():
             raise ValueError("A study ID and timezone-aware registration time are required")
@@ -98,6 +113,7 @@ class TrialRegistry:
 
     def register_family(self, family_id: str, definition: dict, *, now=None) -> str:
         """Declare all member studies before any of them starts; no post-hoc family edits."""
+        self._require_writable()
         now = now or datetime.now(timezone.utc)
         studies = definition.get("study_ids", [])
         if (
@@ -184,6 +200,7 @@ class TrialRegistry:
         }
 
     def start(self, study_id: str, parameters: dict, *, context: dict | None = None) -> str:
+        self._require_writable()
         attempt = uuid.uuid4().hex
         with self.connect() as db:
             row = db.execute(
@@ -204,6 +221,7 @@ class TrialRegistry:
         return attempt
 
     def finish(self, attempt_id: str, status: str, payload: dict) -> None:
+        self._require_writable()
         if status not in {"completed", "failed", "interrupted", "skipped"}:
             raise ValueError("Invalid terminal trial status")
         with self.connect() as db:
@@ -247,6 +265,7 @@ class TrialRegistry:
 
     def seal_holdout(self, study_id: str, evidence: dict, *, now: datetime | None = None):
         """One terminal evaluation per registered study; no repeated winner selection."""
+        self._require_writable()
         now = now or datetime.now(timezone.utc)
         spec = self.definition(study_id)["definition"]
         if not spec.get("holdout_start") or not spec.get("holdout_end"):

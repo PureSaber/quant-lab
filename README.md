@@ -1,5 +1,12 @@
 # quant-lab
 
+Account and study viewers can open `TrialRegistry(path, read_only=True)` to read an
+existing registration without creating directories, tables, or triggers. Missing
+databases fail explicitly. Connections use SQLite `mode=ro` and `query_only`, and
+registry mutation methods reject calls in this mode. This does not freeze a live
+writer or turn an unverified database into authenticated evidence; consumers must
+still verify definitions and referenced artifacts.
+
 研究可信度升级：接口、使用示例、验收及限制见 [11–20 使用说明](docs/RESEARCH_INTEGRITY_11_20.md)。
 
 Cross-project experiment scanner and SQLite index for quant research outputs.
