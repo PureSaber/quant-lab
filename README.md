@@ -92,6 +92,15 @@ must jointly enforce absolute factor, budget, position and turnover constraints;
 this contract change does not waive the execution adapter's tracking-error gate.
 Other allocation modes remain rejected for those risk extensions.
 
+## 现金缓冲与趋势筛选的独立干预
+
+`quant_lab.counterfactuals.intervention_plan`在已有六维干预之外支持：
+
+- `cash_buffer`：只替换`strategy.cash_buffer`，值必须为有限的`[0,1)`比例；持仓数量、单只上限、风险模型和风险门禁不变。现金约束可能被其他上限覆盖，配置变化不保证实际投资额变化。
+- `trend_filter`：只允许`strategy.family`在`etf_trend`和`rank`之间切换，保留排序因子、趋势窗口、调仓频率和其他约束。不能借此切换到`buy_hold`或改变持仓规则。
+
+新计划沿用`quant.paired-interventions/v1`结构和单项干预核验；已有计划与哈希不变。消费者必须使用支持这些维度的Lab提交，旧消费者会明确拒绝未知维度。低、高现金缓冲情景应分别预登记，不按回放收益挑选；同一批历史日期不得累加为独立证据。单项效应仍为模型内终值收益差，残差不视为已识别的因果贡献。
+
 ## Related
 
 - [quant-research-notes](../quant-research-notes)
