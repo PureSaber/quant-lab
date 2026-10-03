@@ -86,6 +86,12 @@ manifest = load_and_validate_standard_run("outputs/run_001")
 锁文件使用`pip-compile --extra dev --build-deps-for editable --allow-unsafe --strip-extras`
 生成，禁止在锁之外临时解析构建后端。
 
+Equity research recipes may retain `risk_model` and PIT industry caps when
+switching allocation between `cost_aware` and `equal`. The consuming allocator
+must jointly enforce absolute factor, budget, position and turnover constraints;
+this contract change does not waive the execution adapter's tracking-error gate.
+Other allocation modes remain rejected for those risk extensions.
+
 ## Related
 
 - [quant-research-notes](../quant-research-notes)

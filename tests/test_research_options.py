@@ -4,6 +4,7 @@ from quant_lab.research_options import (
     validate_allocation,
     validate_execution,
     validate_options,
+    validate_risk,
     validate_validation,
 )
 
@@ -83,3 +84,30 @@ def test_invalid_execution(config):
 def test_invalid_extensions(recipe):
     with pytest.raises(ValueError):
         validate_options(recipe)
+
+
+@pytest.mark.parametrize("mode", ["equal", "cost_aware"])
+def test_factor_and_industry_risk_allow_only_joint_constraint_allocators(mode):
+    recipe = {
+        "backend": "equity",
+        "allocation": {"mode": mode},
+        "risk_model": {"model_kind": "statistical_proxy", "factor_bounds": {"market": [0, 0.9]}},
+        "risk": {"max_industry_weight": 0.4, "industry_field": "industry"},
+        "required_history": {"industry": "classification"},
+    }
+    validate_options(recipe)
+    validate_risk(recipe)
+    recipe["allocation"] = {"mode": "inverse_vol"}
+    with pytest.raises(ValueError, match="risk_model requires equal or cost_aware"):
+        validate_options(recipe)
+    with pytest.raises(ValueError, match="Industry limits require equal or cost_aware"):
+        validate_risk(recipe)
+
+
+def test_equal_risk_allocation_still_requires_valid_model_and_pit_industry():
+    recipe = {"backend": "equity", "allocation": {"mode": "equal"}, "risk_model": {}}
+    with pytest.raises(ValueError, match="model_kind"):
+        validate_options(recipe)
+    recipe["risk"] = {"max_industry_weight": 0.4, "industry_field": "industry"}
+    with pytest.raises(ValueError, match="PIT classification"):
+        validate_risk(recipe)

@@ -105,8 +105,8 @@ def validate_options(recipe: dict) -> None:
                 raise ValueError("Neutralization requires explicit PIT history mappings")
     if "risk_model" in recipe:
         validate_risk_model(recipe["risk_model"], recipe.get("required_history", {}))
-        if recipe.get("allocation", {}).get("mode") != "cost_aware":
-            raise ValueError("risk_model requires cost_aware allocation")
+        if recipe.get("allocation", {}).get("mode") not in {"equal", "cost_aware"}:
+            raise ValueError("risk_model requires equal or cost_aware allocation")
 
 
 def validate_risk(recipe):
@@ -125,8 +125,8 @@ def validate_risk(recipe):
             raise ValueError("Invalid industry weight limit")
         if recipe.get("required_history", {}).get(risk.get("industry_field")) != "classification":
             raise ValueError("Industry limits require a PIT classification field")
-        if recipe.get("allocation", {}).get("mode") != "cost_aware":
-            raise ValueError("Industry limits require cost_aware allocation")
+        if recipe.get("allocation", {}).get("mode") not in {"equal", "cost_aware"}:
+            raise ValueError("Industry limits require equal or cost_aware allocation")
     elif "industry_field" in risk:
         raise ValueError("industry_field requires max_industry_weight")
 
