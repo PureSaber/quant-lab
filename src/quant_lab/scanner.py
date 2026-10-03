@@ -93,6 +93,7 @@ def scan_run(run_path: Path, *, project: str = "") -> ScannedRun | None:
         return None
 
     project_name = detect_project(run_path, project)
+    run_id = run_path.name
     metrics: dict = {"files": [p.name for p in run_path.iterdir() if p.is_file()][:20]}
     run_type = "unknown"
 
@@ -114,6 +115,7 @@ def scan_run(run_path: Path, *, project: str = "") -> ScannedRun | None:
         metrics["rankable"] = is_rankable(manifest)
         metrics["contract"] = "standard/v2" if is_v2 else "standard/v1"
         project_name = manifest.project
+        run_id = manifest.run_id
         run_type = f"standard_v2_{manifest.profile}" if is_v2 else "standard_backtest"
 
     cap = run_path / "capital_curves.csv"
@@ -158,11 +160,22 @@ def scan_run(run_path: Path, *, project: str = "") -> ScannedRun | None:
     decision = run_path / "decision.json"
     if decision.is_file():
         card = json.loads(decision.read_text(encoding="utf-8"))
-        metrics["decision_status"] = card["status"]
-        metrics["decision_reasons"] = card.get("reasons", [])
-        metrics["validation"] = card.get("validation", {})
-        if run_type == "unknown":
-            run_type = "decision_attempt"
+        if not isinstance(card, dict):
+            raise ValueError("Expected decision JSON object")
+        # Other producers use this filename for different research outputs.
+        # Only the declared paper-card contract owns these status fields.
+        if card.get("schema_version") == "quant.decision/v1":
+            if card.get("run_id") != run_id or card.get("status") not in (
+                "blocked",
+                "observe",
+                "paper_ready",
+            ):
+                raise ValueError("Invalid decision identity or status")
+            metrics["decision_status"] = card["status"]
+            metrics["decision_reasons"] = card.get("reasons", [])
+            metrics["validation"] = card.get("validation", {})
+            if run_type == "unknown":
+                run_type = "decision_attempt"
 
     config_path = ""
     for candidate in (
@@ -179,7 +192,7 @@ def scan_run(run_path: Path, *, project: str = "") -> ScannedRun | None:
         metrics["contract"] = run_type
     return ScannedRun(
         project=project_name,
-        run_id=run_path.name,
+        run_id=run_id,
         run_path=str(run_path.resolve()),
         run_type=run_type,
         metrics=metrics,
