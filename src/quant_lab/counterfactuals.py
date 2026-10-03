@@ -1,6 +1,7 @@
 """Preregistered one-factor interventions and exact additive return-gap accounting."""
 
 from copy import deepcopy
+from math import isfinite
 
 import numpy as np
 
@@ -15,6 +16,8 @@ PATHS = {
     "frequency": ("strategy", "frequency"),
     "fees": ("cost_multiplier",),
     "delay": ("signal_delay",),
+    "cash_buffer": ("strategy", "cash_buffer"),
+    "trend_filter": ("strategy", "family"),
 }
 BENCHMARKS = {"passive", "same_risk_constrained", "cash"}
 
@@ -35,6 +38,21 @@ def intervention_plan(base, changes, *, benchmarks):
         path = PATHS[dimension]
         for part in path[:-1]:
             target = target[part]
+        if dimension == "cash_buffer" and any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not isfinite(value)
+            or not 0 <= value < 1
+            for value in (target.get(path[-1]), replacement)
+        ):
+            raise ValueError("cash_buffer intervention requires finite fractions in [0, 1)")
+        if dimension == "trend_filter" and (
+            not isinstance(target.get(path[-1]), str)
+            or not isinstance(replacement, str)
+            or target.get(path[-1]) not in {"rank", "etf_trend"}
+            or replacement not in {"rank", "etf_trend"}
+        ):
+            raise ValueError("trend_filter may only switch rank and etf_trend")
         if target.get(path[-1]) == replacement:
             raise ValueError("intervention must change its declared dimension")
         target[path[-1]] = deepcopy(replacement)
