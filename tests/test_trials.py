@@ -33,6 +33,38 @@ def test_read_only_missing_registry_does_not_create_directory(tmp_path):
     assert not root.exists()
 
 
+@pytest.mark.parametrize("read_only", [False, True])
+def test_connection_context_closes_handle_after_success_and_failure(tmp_path, read_only):
+    path = tmp_path / "registry.db"
+    TrialRegistry(path)
+    registry = TrialRegistry(path, read_only=read_only)
+    for fail in (False, True):
+        try:
+            with registry.connect() as db:
+                db.execute("SELECT * FROM studies").fetchall()
+                if fail:
+                    raise ValueError("consumer failed")
+        except ValueError:
+            pass
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            db.execute("SELECT 1")
+    # Windows refuses this operation while a SQLite handle remains open.
+    path.unlink()
+    assert not path.exists()
+
+
+def test_connection_context_keeps_transaction_commit_and_rollback(tmp_path):
+    registry = TrialRegistry(tmp_path / "registry.db")
+    with registry.connect() as db:
+        db.execute("CREATE TABLE consumer_test (value TEXT)")
+        db.execute("INSERT INTO consumer_test VALUES ('committed')")
+    with pytest.raises(ValueError), registry.connect() as db:
+        db.execute("INSERT INTO consumer_test VALUES ('rolled back')")
+        raise ValueError("rollback")
+    with registry.connect() as db:
+        assert db.execute("SELECT value FROM consumer_test").fetchall() == [("committed",)]
+
+
 def test_read_only_history_and_all_mutators(tmp_path):
     path = tmp_path / "account.db"
     writer = TrialRegistry(path)

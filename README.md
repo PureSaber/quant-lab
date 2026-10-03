@@ -6,6 +6,9 @@ databases fail explicitly. Connections use SQLite `mode=ro` and `query_only`, an
 registry mutation methods reject calls in this mode. This does not freeze a live
 writer or turn an unverified database into authenticated evidence; consumers must
 still verify definitions and referenced artifacts.
+Registry connection contexts commit or roll back on exit and then close their
+SQLite handle, including when the consumer raises. Direct connections remain
+available but must be explicitly closed by their caller.
 
 研究可信度升级：接口、使用示例、验收及限制见 [11–20 使用说明](docs/RESEARCH_INTEGRITY_11_20.md)。
 

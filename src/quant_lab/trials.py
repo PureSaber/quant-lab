@@ -16,6 +16,14 @@ def canonical(value: dict) -> str:
     )
 
 
+class _RegistryConnection(sqlite3.Connection):
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
+
+
 class TrialRegistry:
     def __init__(self, path: Path, *, read_only: bool = False):
         self.path = Path(path)
@@ -62,10 +70,15 @@ class TrialRegistry:
 
     def connect(self):
         if self.read_only:
-            db = sqlite3.connect(self.path.resolve().as_uri() + "?mode=ro", uri=True, timeout=30)
+            db = sqlite3.connect(
+                self.path.resolve().as_uri() + "?mode=ro",
+                uri=True,
+                timeout=30,
+                factory=_RegistryConnection,
+            )
             db.execute("PRAGMA query_only=ON")
         else:
-            db = sqlite3.connect(self.path, timeout=30)
+            db = sqlite3.connect(self.path, timeout=30, factory=_RegistryConnection)
         db.execute("PRAGMA foreign_keys=ON")
         return db
 
