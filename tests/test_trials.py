@@ -1,8 +1,64 @@
+import sqlite3
 from datetime import datetime, timezone
 
 import pytest
 
 from quant_lab.trials import TrialRegistry
+
+
+def test_read_only_registry_preserves_legacy_schema_and_file(tmp_path):
+    path = tmp_path / "old # 注册.db"
+    # A historical registry has only the schema needed by its original version.
+    # A display must not silently add current tables or triggers to it.
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE studies (study_id, definition, sha256, registered_at)")
+        db.execute("INSERT INTO studies VALUES ('old', '{}', 'digest', '2026-01-01')")
+    before = path.read_bytes()
+    stamp = path.stat().st_mtime_ns
+    reader = TrialRegistry(path, read_only=True)
+    assert reader.definition("old")["sha256"] == "digest"
+    with reader.connect() as db:
+        assert db.execute("SELECT name FROM sqlite_master").fetchall() == [("studies",)]
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            db.execute("CREATE TABLE forbidden (id)")
+    assert path.read_bytes() == before
+    assert path.stat().st_mtime_ns == stamp
+    assert list(tmp_path.iterdir()) == [path]
+
+
+def test_read_only_missing_registry_does_not_create_directory(tmp_path):
+    root = tmp_path / "absent"
+    with pytest.raises(FileNotFoundError):
+        TrialRegistry(root / "account.db", read_only=True)
+    assert not root.exists()
+
+
+def test_read_only_history_and_all_mutators(tmp_path):
+    path = tmp_path / "account.db"
+    writer = TrialRegistry(path)
+    definition = {
+        "hypothesis": "fixed",
+        "parameters": [{"window": 20}],
+        "code_identity": "abc",
+        "selection_rule": "fixed",
+    }
+    writer.register("study", definition)
+    attempt = writer.start("study", {"window": 20})
+    writer.finish(attempt, "failed", {"error": "missing prices"})
+    before = path.read_bytes()
+    reader = TrialRegistry(path, read_only=True)
+    assert reader.history("study") == writer.history("study")
+    calls = [
+        lambda: reader.register("study", definition),
+        lambda: reader.register_family("family", {}),
+        lambda: reader.start("study", {"window": 20}),
+        lambda: reader.finish(attempt, "completed", {}),
+        lambda: reader.seal_holdout("study", {}),
+    ]
+    for call in calls:
+        with pytest.raises(PermissionError, match="read-only"):
+            call()
+    assert path.read_bytes() == before
 
 
 def test_registry_keeps_failed_searches_and_locks_future_holdout(tmp_path):
