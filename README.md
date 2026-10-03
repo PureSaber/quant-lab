@@ -8,6 +8,11 @@ Cross-project experiment scanner and SQLite index for quant research outputs.
 `standard/v2`Parquet产物契约。统一reader仅在v2目录完全不存在时回退v1；
 检测到损坏或不完整的v2会直接失败。
 
+索引中的项目与运行ID来自已验证的标准清单，允许本地输出目录使用不同名称。
+只有声明`quant.decision/v1`的`decision.json`才按模拟决策卡读取状态，
+并核对运行身份；择时等应用的同名研究文件不会被误认成模拟调仓授权。
+已有索引中按目录名保存的标准运行应重新扫描生成新索引；索引升级不改写原研究产物。
+
 ## Install
 
 ```bash
