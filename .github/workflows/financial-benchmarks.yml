@@ -1,0 +1,84 @@
+name: Independent financial benchmarks
+
+on:
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  financial-benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Require authorized cross-repository read access
+        env:
+          QUANT_RESEARCH_READ_TOKEN: ${{ secrets.QUANT_RESEARCH_READ_TOKEN }}
+        run: |
+          if [ -z "$QUANT_RESEARCH_READ_TOKEN" ]; then
+            echo "UNAVAILABLE: QUANT_RESEARCH_READ_TOKEN is required for pinned private upstream adapters. No financial acceptance executed." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: PureSaber/quant-data-kit
+          ref: 5d9d58a2b639cafac2db221216e654d883372975
+          path: sources/quant-data-kit
+          token: ${{ secrets.QUANT_RESEARCH_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: PureSaber/quant-execution
+          ref: 652d310d2573a58161ca7b8c5eb3210fcb220866
+          path: sources/quant-execution
+          token: ${{ secrets.QUANT_RESEARCH_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: PureSaber/quant-fund
+          ref: 31b032b65b1b26232125117593880d0cf94aa6cc
+          path: sources/quant-fund
+          token: ${{ secrets.QUANT_RESEARCH_READ_TOKEN }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: PureSaber/quant-report-hub
+          ref: a98f13eb5d42e522e3a27d7cd329a8118e379deb
+          path: sources/quant-report-hub
+          token: ${{ secrets.QUANT_RESEARCH_READ_TOKEN }}
+          persist-credentials: false
+      - name: Install pinned public runtime and local contract layer
+        run: |
+          python -m pip install -r benchmarks/requirements.lock
+          python -m pip install --no-deps --no-build-isolation -e .
+      - name: Execute real adapters and independent Decimal controls
+        env:
+          MPLBACKEND: Agg
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          pins = json.loads(Path('benchmarks/sources.lock.json').read_text(encoding='utf-8-sig'))
+          Path('sources.json').write_text(json.dumps({name: {'path': str(Path('sources', name).resolve()), 'commit': sha} for name, sha in pins.items()}))
+          PY
+          python -m quant_benchmarks --sources sources.json --out benchmark-evidence
+      - name: Publish readable measured outcome
+        if: always()
+        run: |
+          if [ -f benchmark-evidence/report.md ]; then
+            cat benchmark-evidence/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: independent-financial-benchmarks
+          path: benchmark-evidence/
+          if-no-files-found: warn

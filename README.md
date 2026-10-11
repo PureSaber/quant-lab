@@ -107,3 +107,7 @@ Other allocation modes remain rejected for those risk extensions.
 
 - [quant-research-notes](../quant-research-notes)
 - [quant-report-hub](../quant-report-hub)
+
+Economic comparison requires the explicit [measurement contract](docs/measurement.md).
+Run the [independent financial benchmark suite](docs/financial-benchmarks.md) with pinned
+real repository adapters; synthetic fixture agreement does not certify market validity.

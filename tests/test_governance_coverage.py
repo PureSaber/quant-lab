@@ -37,10 +37,26 @@ def test_cli_lifecycle_covers_governance_commands(tmp_path: Path, capsys) -> Non
     assert "demo\trun-1" in capsys.readouterr().out
     assert main(["--db", str(db), "list", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)[0]["run_id"] == "run-1"
-    assert main(["--db", str(db), "compare", "--project", "demo", "run-1", "missing"]) == 0
+    assert (
+        main(["--db", str(db), "compare", "--project", "demo", "run-1", "missing", "--view-only"])
+        == 0
+    )
     assert "missing" in capsys.readouterr().out
     assert (
-        main(["--db", str(db), "compare", "--project", "demo", "run-1", "missing", "--json"]) == 0
+        main(
+            [
+                "--db",
+                str(db),
+                "compare",
+                "--project",
+                "demo",
+                "run-1",
+                "missing",
+                "--json",
+                "--view-only",
+            ]
+        )
+        == 0
     )
     assert json.loads(capsys.readouterr().out)[1]["error"] == "not found"
     dashboard = tmp_path / "reports" / "dashboard.html"

@@ -63,7 +63,7 @@ def cmd_compare(args: argparse.Namespace) -> int:
         print(json.dumps(rows, indent=2, ensure_ascii=False))
     else:
         print(format_comparison_table(rows))
-    return 0
+    return 0 if args.view_only or (rows and rows[0]["comparison"]["comparable"]) else 2
 
 
 def cmd_export_html(args: argparse.Namespace) -> int:
@@ -119,6 +119,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--db", default=str(_default_db()), help="SQLite index path")
     sub = p.add_subparsers(dest="command", required=True)
 
+    benchmarks = sub.add_parser(
+        "financial-benchmarks", help="Run independent real-adapter benchmarks"
+    )
+    benchmarks.add_argument("--sources", required=True)
+    benchmarks.add_argument("--out", required=True)
+    benchmarks.set_defaults(func=cmd_benchmarks)
+
     init = sub.add_parser("init", help="Create default workspace config")
     init.add_argument("--config", default=str(_default_config()))
     init.add_argument("--force", action="store_true")
@@ -139,6 +146,9 @@ def build_parser() -> argparse.ArgumentParser:
     cmp.add_argument("--project", required=True)
     cmp.add_argument("run_ids", nargs="+")
     cmp.add_argument("--json", action="store_true")
+    cmp.add_argument(
+        "--view-only", action="store_true", help="Read historical metrics without certification"
+    )
     cmp.set_defaults(func=cmd_compare)
 
     export = sub.add_parser("export", help="Export dashboard artifacts")
@@ -153,6 +163,12 @@ def build_parser() -> argparse.ArgumentParser:
     validate.set_defaults(func=cmd_validate)
 
     return p
+
+
+def cmd_benchmarks(args):
+    from quant_benchmarks import main as benchmark_main
+
+    return benchmark_main(["--sources", args.sources, "--out", args.out])
 
 
 def main(argv: list[str] | None = None) -> int:
