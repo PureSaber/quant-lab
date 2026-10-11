@@ -1,6 +1,12 @@
 # 不可变快照上的滚动研究入口
 
-`quant_lab.rolling_research`提供独立、显式启用的研究SDK，不修改原TrialRegistry、统计实现、Studio或冻结Notebook。当前为三仓源码集成候选，使用配套quant-factors和quant-data-kit源码；既有生产依赖锁未切换。普通Lab功能不导入这两个可选组件。
+`quant_lab.rolling_research`提供独立、显式启用的研究SDK。安装`.[rolling-research]`会安装提供共享快照与持久缓存的精确QDK/Factors提交；普通Lab功能不导入这两个可选组件。开发锁包含此extra，CI实际执行滚动研究测试。
+
+```bash
+python -m pip install '.[rolling-research]'
+```
+
+需要工作台和独立Worker的完整固定安装时，使用quant-workspace的`profiles/durable-research`配置；冻结Notebook及前向账户无需迁移。
 
 ## 可组合接口
 
@@ -30,7 +36,7 @@ payload不接受路径、模块、shell或任意SQL。Worker的独占attempt目�
 
 ## 可执行合成行情与三组参数
 
-将三个交付仓的`src`放入当前进程及子进程继承的`PYTHONPATH`，使用隔离环境Python；不修改已冻结环境。以下命令在quant-lab仓执行：
+在新隔离环境安装上述extra后，以下命令在quant-lab仓执行：
 
 ```powershell
 python examples/rolling_research_fixture.py --store-root H:/isolated-engineering/artifacts --output H:/isolated-engineering/fixture
@@ -55,4 +61,4 @@ python -m quant_lab.rolling_research --request H:/isolated-engineering/fixture/r
 
 `python -m pytest tests/test_rolling_research.py -q --no-cov`实际创建QDK快照、CAS、SQLite缓存和TrialRegistry，并启动命令行子进程。未安装配套可选包时该集成模块会明确skip；交付验收必须配置三仓并做到零skip。完整`python -m pytest -q`验证原研究、家族/holdout、PIT适配和统计。
 
-不交付真实拟合、辅助源增量、市场多vintage选择、端到端流式、自动清理pin、任务调度器或实盘执行。市场修订及训练边界遵循quant-factors的`docs/persistent-cache.md`。正式依赖发版需协调方按既有流程重建跨仓锁，当前不能把源码覆盖验收当作发布完成。
+本版范围不包含真实拟合、辅助源增量、市场多vintage选择、端到端流式、自动清理pin、任务调度器或实盘执行。市场修订及训练边界遵循quant-factors的`docs/persistent-cache.md`。服务机部署验收另行执行，不以源码测试替代。

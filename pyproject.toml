@@ -18,6 +18,10 @@ dependencies = [
 
 [project.optional-dependencies]
 statistics = ["arch>=7.2,<9"]
+rolling-research = [
+    "quant-data-kit @ git+https://github.com/PureSaber/quant-data-kit.git@fd080755eebdd5851d98e2b00830235f39ea5ce7",
+    "quant-factors @ git+https://github.com/PureSaber/quant-factors.git@0d7eb5c55ad47ca25271ad7a29cae19f482da5b7",
+]
 dev = ["pytest>=7.4", "pytest-cov>=5.0", "ruff>=0.9.0", "arch>=7.2,<9", "setuptools>=68", "wheel>=0.46"]
 
 [tool.quant-workspace]
