@@ -5,8 +5,8 @@
 installing quant-lab. `pip install --no-deps quant-lab` is sufficient for this module
 alone; importing it never imports pandas, Arrow or execution libraries.
 
-See [the complete example](../measurement-example.json). All 26 `basis` fields are
-required. `validate_measurement(value)` returns a detached valid declaration or raises
+See [the complete example](../measurement-example.json). Every field in
+`quant_measurement.BASIS_FIELDS` is required. `validate_measurement(value)` returns a detached valid declaration or raises
 `ValueError`/`TypeError`. `compare_measurements(values, statuses=...)` returns
 `comparable`, `reasons` (index, field, code, message), and a stable `basis_id`.
 
