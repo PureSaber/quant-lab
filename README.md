@@ -25,6 +25,8 @@ Cross-project experiment scanner and SQLite index for quant research outputs.
 
 ## Install
 
+滚动因子研究SDK需显式安装`.[rolling-research]`，使用已固定的QDK共享快照和Factors持久缓存。完整入口见[滚动研究说明](docs/rolling-research.md)。开发锁包含该extra，以便CI实际运行对应集成测试。
+
 ```bash
 cd quant-lab
 python -m venv .venv
@@ -83,8 +85,8 @@ manifest = load_and_validate_standard_run("outputs/run_001")
 `pip check`和跨仓清单校验，锁文件与代码一并提交。若发布验证失败，回滚到上一个
 默认分支提交及其锁文件；不得移动旧tag，也不得修改已生成的研究产物。
 
-锁文件使用`pip-compile --extra dev --build-deps-for editable --allow-unsafe --strip-extras`
-生成，禁止在锁之外临时解析构建后端。
+锁文件使用`uv pip compile pyproject.toml --extra dev --extra rolling-research --python-version 3.10 --constraint=requirements-constraints.txt --output-file requirements.lock`
+生成，覆盖Python3.10–3.12及editable构建依赖，禁止在锁之外临时解析构建后端。
 
 Equity research recipes may retain `risk_model` and PIT industry caps when
 switching allocation between `cost_aware` and `equal`. The consuming allocator

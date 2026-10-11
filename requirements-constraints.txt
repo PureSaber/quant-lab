@@ -1,0 +1,2 @@
+# Shared Python3.10-3.12 lock: newer rpds-py releases lack Python3.10 wheels.
+rpds-py<0.31

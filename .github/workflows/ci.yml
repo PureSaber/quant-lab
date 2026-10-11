@@ -40,4 +40,6 @@ jobs:
         run: ruff format --check src tests
 
       - name: Pytest
-        run: pytest -q
+        run: |
+          python -c "import quant_data_kit.shared_snapshots, quant_factors.cache, quant_lab.rolling_research"
+          pytest -q
