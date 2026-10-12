@@ -562,6 +562,12 @@ def compare_results(results: list[dict]) -> dict:
     """Never silently rank incompatible universes, costs, windows or data vintages."""
     fields = ("data_identity", "comparison", "identity")
     completed = [r for r in results if r.get("status") == "completed"]
+    from quant_measurement import compare_measurements
+
+    measurement = compare_measurements(
+        [r.get("measurement", r.get("metrics", {}).get("measurement")) for r in results],
+        statuses=[r.get("status", "unavailable") for r in results],
+    )
     mismatches = []
     if completed:
         first = completed[0]
@@ -574,9 +580,11 @@ def compare_results(results: list[dict]) -> dict:
         if first.get("rankable") is False or first.get("contract") == "standard/v1":
             mismatches.append({"candidate": first["candidate"]["name"], "field": "rankable"})
     return {
-        "comparable": bool(completed) and not mismatches,
+        "comparable": measurement["comparable"] and not mismatches,
         "mismatches": mismatches,
         "results": completed,
+        "requested_results": results,
+        "measurement_comparison": measurement,
     }
 
 

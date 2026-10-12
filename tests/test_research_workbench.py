@@ -73,7 +73,7 @@ def test_all_candidates_registered_before_execution_and_resume(recipe, tmp_path)
     )
     assert first == second
     assert len(calls) == len(candidates(recipe))
-    assert compare_results(first["results"])["comparable"]
+    assert not compare_results(first["results"])["comparable"]  # legacy metadata is read-only
     path = next(tmp_path.glob("attempts/*/returns.csv"))
     path.write_text("changed")
     with pytest.raises(ValueError, match="artifact"):

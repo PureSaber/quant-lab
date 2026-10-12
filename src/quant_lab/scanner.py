@@ -112,20 +112,27 @@ def scan_run(run_path: Path, *, project: str = "") -> ScannedRun | None:
         metrics["schema_version"] = manifest.schema_version
         metrics["code_version"] = manifest.code_version
         metrics["dataset_snapshots"] = manifest.dataset_snapshots
-        metrics["rankable"] = is_rankable(manifest)
+        metrics["rankable"] = False
+        try:
+            from quant_lab.measurement import read_measured_run
+
+            measured = read_measured_run(run_path)
+            metrics["rankable"] = is_rankable(manifest, measured["measurement"])
+        except (ValueError, TypeError, OSError) as exc:
+            metrics["measurement_error"] = str(exc)
         metrics["contract"] = "standard/v2" if is_v2 else "standard/v1"
         project_name = manifest.project
         run_id = manifest.run_id
         run_type = f"standard_v2_{manifest.profile}" if is_v2 else "standard_backtest"
 
     cap = run_path / "capital_curves.csv"
-    if cap.is_file():
+    if cap.is_file() and run_type == "unknown":
         metrics.update(_metrics_from_capital_curves(cap))
         if run_type == "unknown":
             run_type = "equity_backtest"
 
     summary = run_path / "performance" / "summary.csv"
-    if summary.is_file():
+    if summary.is_file() and run_type == "unknown":
         metrics.update(_metrics_from_summary(summary))
         if run_type == "unknown":
             run_type = "spread_backtest"

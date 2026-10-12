@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from quant_lab.contracts_v2 import BACKTEST_LEDGER_PROFILE, RunManifestV2
+from quant_measurement import validate_measurement
 
 _NOT_COMPARABLE = {
     "watchlist",
@@ -13,11 +14,17 @@ _NOT_COMPARABLE = {
 }
 
 
-def is_rankable(manifest) -> bool:
+def is_rankable(manifest, measurement=None) -> bool:
     """v1 ledgers and tagged watchlist or research-only runs stay out of rankings."""
     if not isinstance(manifest, RunManifestV2):
         return False
     if manifest.profile != BACKTEST_LEDGER_PROFILE:
+        return False
+    try:
+        value = validate_measurement(measurement)
+    except (TypeError, ValueError):
+        return False
+    if value["evidence_kind"] == "synthetic" or value["sample_kind"] == "deterministic_fixture":
         return False
     tags = manifest.tags or {}
     if tags.get("rankable") == "false" or tags.get("research_only") == "true":

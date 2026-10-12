@@ -29,8 +29,10 @@ layer = "contract"
 schemas = [
     { id = "standard/v2", version = "2.0.0" },
     { id = "puresaber.run-manifest", version = "2.0.0" },
+    { id = "quant.measurement/v1", version = "1.0.0" },
+    { id = "quant.independent-financial-benchmarks/v1", version = "1.0.0" },
 ]
-lock-files = ["requirements.lock"]
+lock-files = ["requirements.lock", "benchmarks/requirements.lock"]
 
 [project.scripts]
 quant-lab = "quant_lab.cli:main"
@@ -41,7 +43,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = ["--cov=quant_lab", "--cov-branch", "--cov-report=term-missing", "--cov-fail-under=80"]
+addopts = ["--cov=quant_lab", "--cov=quant_measurement", "--cov-branch", "--cov-report=term-missing", "--cov-fail-under=80"]
 
 [tool.ruff]
 line-length = 100
