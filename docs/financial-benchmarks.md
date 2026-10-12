@@ -42,5 +42,13 @@ or live trading. Unsupported: unpriced delisting recovery, SPAN/portfolio margin
 FOF investor flows/tax, and causal attribution of reported FX components.
 
 CI runs normal unit/contract gates separately from the pinned cross-repository benchmark
-job. Private repository access requires `QUANT_RESEARCH_READ_TOKEN`; absence is an explicit
-job failure, never a skipped green financial acceptance.
+job. The four pinned upstream repositories are public and use the job's default
+`github.token` with `contents: read`; no additional secret is required. A configured
+`QUANT_RESEARCH_READ_TOKEN` overrides that token for authorized private upstreams. If an
+upstream becomes private, provide a dedicated token limited to Contents read for
+`PureSaber/quant-data-kit`, `PureSaber/quant-execution`, `PureSaber/quant-fund`, and
+`PureSaber/quant-report-hub`. Do not copy a local login token into Actions secrets.
+Fork pull requests cannot receive repository secrets and can therefore benchmark only
+public upstreams. A missing or inaccessible pinned commit fails its named checkout step;
+installation and benchmarks do not run, and the job remains failed. Such a failure is
+never a skipped green financial acceptance.
