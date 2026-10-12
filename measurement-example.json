@@ -1,0 +1,45 @@
+{
+  "schema": "quant.measurement/v1",
+  "evidence_kind": "synthetic",
+  "sample_kind": "deterministic_fixture",
+  "basis": {
+    "currency": "CNY",
+    "monetary_unit": "major_currency",
+    "return_unit": "decimal",
+    "return_basis": "net_simple_time_weighted",
+    "period_start": "2025-01-02T00:00:00Z",
+    "period_end": "2025-01-03T00:00:00Z",
+    "frequency": "event",
+    "calendar": "explicit_fixture_events",
+    "timezone": "UTC",
+    "annualization_periods": null,
+    "risk_free_rate": "0",
+    "flow_policy": "external_flows_excluded_internal_transfers_neutral",
+    "cost_policy": "actual_ledger_fees",
+    "valuation_policy": "event_close_mark",
+    "benchmark_id": "cash_zero_interest",
+    "universe_id": "fixture-v1",
+    "timing_policy": "signal_before_fill",
+    "denominator_policy": "previous_net_asset_value",
+    "observation_schedule_id": "sha256:899f422ad9ff429d1344d707e74915c438f5b1f43f2a2ac47807468fd068c7fa",
+    "capital_basis": "net_assets_including_cash_and_receivables_less_liabilities",
+    "annualization_policy": "not_annualized",
+    "valuation_policy_id": "sha256:19454164b5f8921984d0ad22869d1c3a20a0e8173b50cc9c5bace4f271de962c",
+    "initial_capital": "10000",
+    "risk_free_compounding": "simple",
+    "risk_free_unit": "annual_decimal",
+    "cost_policy_id": "sha256:04e3187ab5fdd9807abaf05514aba876472950507c007523034fb1104b8936da"
+  },
+  "provenance": {
+    "code_identity": {
+      "producer": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "input_identity": {
+      "fixture": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "unsupported_scopes": [
+    "live_execution",
+    "market_validity"
+  ]
+}
