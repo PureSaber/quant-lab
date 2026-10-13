@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 import re
 
+from quant_lab.risk_options import validate_estimation, validate_exposure_pipeline
+
 
 def validate_validation(value: dict) -> dict:
     fields = {
@@ -151,6 +153,8 @@ def validate_risk_model(value, histories):
         "active_factor_bounds",
         "benchmark_weights",
         "max_tracking_error",
+        "estimation",
+        "exposure_pipeline",
     }
     if not isinstance(value, dict) or set(value) - fields:
         raise ValueError("Unknown risk_model options")
@@ -167,6 +171,7 @@ def validate_risk_model(value, histories):
         "factor_bounds": {},
         "active_factor_bounds": {},
         "benchmark_weights": {},
+        "estimation": {},
         **value,
     }
     if result.get("model_kind") not in {"statistical_proxy", "fundamental_style"}:
@@ -196,11 +201,36 @@ def validate_risk_model(value, histories):
             or histories.get(field) not in {"fundamentals", "classification"}
         ):
             raise ValueError("Risk exposures require PIT numeric history fields")
-    if not mappings and (
-        not result["market_factor"] or result["model_kind"] == "fundamental_style"
+    pipeline = result.get("exposure_pipeline")
+    if (
+        not mappings
+        and pipeline is None
+        and (not result["market_factor"] or result["model_kind"] == "fundamental_style")
     ):
         raise ValueError("Fundamental style model requires real descriptors")
     factors = set(mappings) | ({"market"} if result["market_factor"] else set())
+    validate_estimation(result["estimation"], result["lookback"])
+    if pipeline is not None:
+        if mappings:
+            raise ValueError("exposure_fields and exposure_pipeline cannot be combined")
+        factors = validate_exposure_pipeline(pipeline, histories)
+        if "market_factor" in value and value["market_factor"] != pipeline["config"].get(
+            "market_factor", True
+        ):
+            raise ValueError("market_factor differs from the exposure pipeline")
+        result["market_factor"] = pipeline["config"].get("market_factor", True)
+    estimation = result["estimation"]
+    if (
+        estimation.get("regression_weighting", "equal") != "equal"
+        or estimation.get("industry_constraint", False)
+        or estimation.get("specific_target", "global") == "industry"
+    ) and pipeline is None:
+        raise ValueError("Weighted/industry estimation requires a PIT exposure_pipeline")
+    if estimation.get("industry_constraint", False) and not (
+        pipeline["config"].get("market_factor", True)
+        and pipeline["config"].get("include_industries", True)
+    ):
+        raise ValueError("Industry constraint requires market and industry factors")
     for key in ("factor_bounds", "active_factor_bounds"):
         bounds = result[key]
         if not isinstance(bounds, dict) or set(bounds) - factors:
