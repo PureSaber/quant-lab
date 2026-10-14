@@ -98,9 +98,12 @@ def test_factor_and_industry_risk_allow_only_joint_constraint_allocators(mode):
     validate_options(recipe)
     validate_risk(recipe)
     recipe["allocation"] = {"mode": "inverse_vol"}
-    with pytest.raises(ValueError, match="risk_model requires equal or cost_aware"):
+    validate_options(recipe)
+    validate_risk(recipe)
+    recipe["allocation"] = {"mode": "hrp"}
+    with pytest.raises(ValueError, match="risk_model does not support"):
         validate_options(recipe)
-    with pytest.raises(ValueError, match="Industry limits require equal or cost_aware"):
+    with pytest.raises(ValueError, match="Industry limits do not support"):
         validate_risk(recipe)
 
 

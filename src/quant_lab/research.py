@@ -147,7 +147,9 @@ def validate_recipe(value: dict) -> dict:
         else:
             _number(number, field, lower=-1 if field == "minimum_funding_rate" else 0)
     inputs = _closed(
-        recipe.get("inputs"), {"bundle", "history", "catalog", "source", "config"}, "inputs"
+        recipe.get("inputs"),
+        {"bundle", "history", "catalog", "source", "config", "return_forecasts"},
+        "inputs",
     )
     if not inputs or any(not isinstance(v, str) or not v.strip() for v in inputs.values()):
         raise ValueError("Explicit input references are required")
@@ -303,7 +305,7 @@ def validate_recipe(value: dict) -> dict:
 
 def load_recipe(path: Path) -> dict:
     recipe = validate_recipe(yaml.safe_load(path.read_text(encoding="utf-8")))
-    for key in ("bundle", "history", "catalog", "config"):
+    for key in ("bundle", "history", "catalog", "config", "return_forecasts"):
         if key in recipe["inputs"]:
             recipe["inputs"][key] = str((path.parent / recipe["inputs"][key]).resolve())
     return recipe
