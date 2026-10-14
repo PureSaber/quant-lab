@@ -107,8 +107,19 @@ def validate_options(recipe: dict) -> None:
                 raise ValueError("Neutralization requires explicit PIT history mappings")
     if "risk_model" in recipe:
         validate_risk_model(recipe["risk_model"], recipe.get("required_history", {}))
-        if recipe.get("allocation", {}).get("mode") not in {"equal", "cost_aware"}:
-            raise ValueError("risk_model requires equal or cost_aware allocation")
+        if recipe.get("allocation", {}).get("mode") not in {
+            "equal",
+            "cost_aware",
+            "inverse_vol",
+            "max_sharpe",
+            "max_diversification",
+            "cvar",
+            "evar",
+            "cdar",
+        }:
+            raise ValueError(
+                "risk_model does not support dense-only risk_parity or hrp target construction"
+            )
 
 
 def validate_risk(recipe):
@@ -127,8 +138,19 @@ def validate_risk(recipe):
             raise ValueError("Invalid industry weight limit")
         if recipe.get("required_history", {}).get(risk.get("industry_field")) != "classification":
             raise ValueError("Industry limits require a PIT classification field")
-        if recipe.get("allocation", {}).get("mode") not in {"equal", "cost_aware"}:
-            raise ValueError("Industry limits require equal or cost_aware allocation")
+        if recipe.get("allocation", {}).get("mode") not in {
+            "equal",
+            "cost_aware",
+            "inverse_vol",
+            "max_sharpe",
+            "max_diversification",
+            "cvar",
+            "evar",
+            "cdar",
+        }:
+            raise ValueError(
+                "Industry limits do not support dense-only risk_parity or hrp target construction"
+            )
     elif "industry_field" in risk:
         raise ValueError("industry_field requires max_industry_weight")
 
@@ -260,49 +282,12 @@ def validate_risk_model(value, histories):
 
 
 def validate_allocation(value):
-    fields = {
-        "mode",
-        "lookback",
-        "min_observations",
-        "covariance_shrinkage",
-        "risk_aversion",
-        "turnover_penalty",
-        "max_turnover",
-    }
-    if not isinstance(value, dict) or set(value) - fields:
-        raise ValueError("Unknown allocation options")
-    result = {
-        "lookback": 20,
-        "min_observations": 10,
-        "covariance_shrinkage": 0.2,
-        "risk_aversion": 5.0,
-        "turnover_penalty": 0.0,
-        "max_turnover": 1.0,
-        **value,
-    }
-    if result.get("mode") not in {"equal", "inverse_vol", "cost_aware"}:
-        raise ValueError("Unknown allocation mode")
-    if any(type(result[k]) is not int or result[k] < 2 for k in ("lookback", "min_observations")):
-        raise ValueError("Invalid allocation observations")
-    if result["min_observations"] > result["lookback"]:
-        raise ValueError("Allocation min_observations exceeds lookback")
-    for key in ("covariance_shrinkage", "risk_aversion", "turnover_penalty", "max_turnover"):
-        number = result[key]
-        if (
-            isinstance(number, bool)
-            or not isinstance(number, (int, float))
-            or not math.isfinite(number)
-        ):
-            raise ValueError("Allocation values must be finite numbers")
-        if number < 0:
-            raise ValueError("Allocation values cannot be negative")
-    if (
-        result["covariance_shrinkage"] > 1
-        or result["risk_aversion"] == 0
-        or result["max_turnover"] > 2
-    ):
-        raise ValueError("Allocation constraint out of range")
-    return result
+    from quant_data_kit.allocation_protocol import validate_research_allocation
+
+    try:
+        return validate_research_allocation(value)
+    except TypeError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def validate_execution(value, required_history):
