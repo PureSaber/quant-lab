@@ -80,7 +80,7 @@ quant-data-kit @ git+https://github.com/PureSaber/quant-data-kit.git@a84c7306a2f
     # via
     #   quant-lab (pyproject.toml)
     #   quant-factors
-quant-factors @ git+https://github.com/PureSaber/quant-factors.git@1c798bc737bc92fa5eca85dd0663dc608104f721
+quant-factors @ git+https://github.com/PureSaber/quant-factors.git@f4e32e528ab1c46f14b249076e31c4782d52e224
     # via quant-lab (pyproject.toml)
 referencing==0.37.0
     # via

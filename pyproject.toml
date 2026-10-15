@@ -21,7 +21,7 @@ dependencies = [
 statistics = ["arch>=7.2,<9"]
 rolling-research = [
     "quant-data-kit @ git+https://github.com/PureSaber/quant-data-kit.git@a84c7306a2f3ad6d2f2c90901d6525d091ab49d6",
-    "quant-factors @ git+https://github.com/PureSaber/quant-factors.git@1c798bc737bc92fa5eca85dd0663dc608104f721",
+    "quant-factors @ git+https://github.com/PureSaber/quant-factors.git@f4e32e528ab1c46f14b249076e31c4782d52e224",
 ]
 dev = ["pytest>=7.4", "pytest-cov>=5.0", "ruff>=0.9.0", "arch>=7.2,<9", "setuptools>=68", "wheel>=0.46"]
 
