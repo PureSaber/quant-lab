@@ -267,6 +267,11 @@ class TrialRegistry:
             for a, s, t, p in rows
         ]
 
+    def study_ids(self) -> list[str]:
+        """List registered studies, including those with no attempts."""
+        with self.connect() as db:
+            return [r[0] for r in db.execute("SELECT study_id FROM studies ORDER BY study_id")]
+
     def definition(self, study_id: str) -> dict:
         with self.connect() as db:
             row = db.execute(
