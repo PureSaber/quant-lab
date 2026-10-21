@@ -111,3 +111,10 @@ Other allocation modes remain rejected for those risk extensions.
 Economic comparison requires the explicit [measurement contract](docs/measurement.md).
 Run the [independent financial benchmark suite](docs/financial-benchmarks.md) with pinned
 real repository adapters; synthetic fixture agreement does not certify market validity.
+# Research findings inventory
+
+Run `quant-lab findings --registry path/to/experiments.db` for a compact inventory,
+or add `--json` for recorded scope, every attempt and verified result metrics.
+The command opens the existing registry read-only and preserves failed/retried
+attempts. Missing or altered result files are marked unverified. Execution success
+is not a hypothesis verdict; human research decisions remain in Studio.

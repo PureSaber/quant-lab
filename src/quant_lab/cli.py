@@ -72,6 +72,16 @@ def cmd_export_html(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_findings(args: argparse.Namespace) -> int:
+    from quant_lab.findings import findings_markdown, research_findings
+
+    report = research_findings(Path(args.registry))
+    print(
+        json.dumps(report, indent=2, ensure_ascii=False) if args.json else findings_markdown(report)
+    )
+    return 0
+
+
 def cmd_validate(args: argparse.Namespace) -> int:
     manifest = load_and_validate_standard_run(Path(args.run_dir))
     payload = {
@@ -118,6 +128,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="quant-lab", description="Cross-project experiment indexer")
     p.add_argument("--db", default=str(_default_db()), help="SQLite index path")
     sub = p.add_subparsers(dest="command", required=True)
+
+    findings = sub.add_parser("findings", help="Read all preregistered studies and failed attempts")
+    findings.add_argument("--registry", required=True, help="Existing TrialRegistry SQLite file")
+    findings.add_argument("--json", action="store_true", help="Include scope and verified evidence")
+    findings.set_defaults(func=cmd_findings)
 
     benchmarks = sub.add_parser(
         "financial-benchmarks", help="Run independent real-adapter benchmarks"
