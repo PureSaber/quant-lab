@@ -98,6 +98,21 @@ class TrialRegistry:
             from quant_lab.objectives import validate_objective
 
             validate_objective(definition["objective"])
+        if "research_plan" in definition:
+            from quant_lab.research_gates import validate_plan
+
+            if "objective" not in definition:
+                raise ValueError("research plan requires an objective")
+            # Existing definitions are re-opened below using their original registration.
+            with self.connect() as db:
+                prior = db.execute(
+                    "SELECT registered_at FROM studies WHERE study_id=?", (study_id,)
+                ).fetchone()
+            validate_plan(
+                definition["research_plan"],
+                definition["objective"],
+                registered_at=prior[0] if prior else now,
+            )
         if definition.get("family_id"):
             family = self.family(definition["family_id"])
             if study_id not in family["definition"]["study_ids"]:

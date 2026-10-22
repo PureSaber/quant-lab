@@ -49,6 +49,7 @@ ROOT_FIELDS = {
     "risk_model",
     "family_id",
     "objective",
+    "research_plan",
     "measurement_basis",
 }
 STRATEGY_FIELDS = {"family", "frequency", "top_n", "max_weight", "cash_buffer", "trend_window"}
@@ -102,6 +103,15 @@ def validate_recipe(value: dict) -> dict:
         from quant_lab.objectives import validate_objective
 
         validate_objective(recipe["objective"])
+    if "research_plan" in recipe:
+        from quant_lab.research_gates import validate_plan
+
+        if "objective" not in recipe:
+            raise ValueError("research plan requires an objective")
+        validate_plan(recipe["research_plan"], recipe["objective"])
+        expected = "retrospective" if recipe.get("mode") == "exploratory" else "prospective"
+        if recipe["research_plan"]["sample_kind"] != expected:
+            raise ValueError("research plan sample use must match recipe mode")
     if "measurement_basis" in recipe:
         import pandas as pd
 
@@ -279,6 +289,11 @@ def validate_recipe(value: dict) -> dict:
             raise ValueError("Holdout must follow development and have positive duration")
     elif recipe.get("holdout"):
         raise ValueError("Exploratory studies cannot claim an untouched holdout")
+    if "research_plan" in recipe:
+        window = recipe["holdout"] if recipe["mode"] == "prospective" else interval
+        sessions = recipe["research_plan"]["sessions"]
+        if sessions[0] < window["start"] or sessions[-1] > window["end"]:
+            raise ValueError("research sessions must lie inside the declared evaluation window")
     histories = recipe.get("required_history", {})
     if not isinstance(histories, dict) or any(
         v not in {"universe", "status", "fundamentals", "classification"}
@@ -438,7 +453,7 @@ def execute_study(
         "recipe": recipe,
         "data_identity": data_identity,
     }
-    for field in ("family_id", "objective"):
+    for field in ("family_id", "objective", "research_plan"):
         if field in recipe:
             definition[field] = deepcopy(recipe[field])
     if recipe["mode"] == "prospective":
@@ -505,6 +520,15 @@ def execute_study(
                             "reason": "executor supplied no investment evidence",
                         }
                     )
+                    from quant_lab.research_gates import evaluate_gates
+
+                    payload["research_gates"] = evaluate_gates(
+                        definition["objective"],
+                        payload["objective_evaluation"],
+                        plan=definition.get("research_plan"),
+                        registered_at=registry.definition(study)["registered_at"],
+                        evidence=objective_evidence,
+                    )
                 payload.update(
                     schema_version="quant.research-result/v1",
                     candidate=candidate,
@@ -541,6 +565,14 @@ def execute_study(
                     "error_type": type(exc).__name__,
                     "error": str(exc),
                 }
+                diagnostics = getattr(exc, "diagnostics", None)
+                if isinstance(diagnostics, dict):
+                    failure["diagnostics"] = diagnostics
+                    if "failure_assessment" in diagnostics:
+                        failure["failure_assessment"] = diagnostics["failure_assessment"]
+                assessment = getattr(exc, "failure_assessment", None)
+                if isinstance(assessment, dict):
+                    failure["failure_assessment"] = assessment
                 (out / "failure.json").write_text(canonical(failure), encoding="utf-8")
                 registry.finish(attempt, "failed", failure)
                 results.append(failure)
