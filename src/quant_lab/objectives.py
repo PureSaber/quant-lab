@@ -23,6 +23,10 @@ METRICS = {
     "drawdown_magnitude",
     "net_cashflow_yield",
     "capital_efficiency",
+    "mean_daily_excess_return",
+    "volatility_ratio",
+    "downside_ratio",
+    "cvar_ratio",
 }
 
 
@@ -105,7 +109,14 @@ def evaluate_objective(objective, evidence):
     primary = spec["primary"]
     check(
         "risk"
-        if primary["metric"] in {"tracking_error", "drawdown_magnitude"}
+        if primary["metric"]
+        in {
+            "tracking_error",
+            "drawdown_magnitude",
+            "volatility_ratio",
+            "downside_ratio",
+            "cvar_ratio",
+        }
         else "execution"
         if primary["metric"] == "capital_efficiency"
         else "return",
@@ -157,5 +168,6 @@ def evaluate_objective(objective, evidence):
     return {
         "status": status,
         "checks": checks,
-        "scope": "research acceptance only; does not authorize investment or relaxing risk controls",
+        "evidence_kind": "point_estimate_only",
+        "scope": "point estimate review only; does not pass engineering, future research or promotion gates",
     }

@@ -34,6 +34,7 @@ def research_findings(path: Path) -> dict:
                         "metrics": result.get("metrics"),
                         "comparison": result.get("comparison"),
                         "objective_evaluation": result.get("objective_evaluation"),
+                        "research_gates": result.get("research_gates"),
                     }
                 except (KeyError, ValueError, OSError, TypeError) as exc:
                     row["evidence"] = {"verified": False, "reason": str(exc)}
