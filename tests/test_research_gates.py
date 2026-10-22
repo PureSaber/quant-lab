@@ -127,3 +127,20 @@ def test_zero_uncertainty_invalid_dates_and_boolean_settings():
     plan["calibration"] = [{**r, "strategy": r["benchmark"] * 0.5} for r in plan["calibration"]]
     with pytest.raises(ValueError, match="degenerate"):
         detectability(plan, goal)
+
+
+def test_same_day_calibration_and_preclose_review_cannot_use_future_data():
+    goal, plan, ev = setup_plan()
+    plan["calibration"][-1]["date"] = "2026-10-22"
+    with pytest.raises(ValueError, match="registration day"):
+        validate_plan(plan, goal, registered_at="2026-10-22T01:00:00Z")
+    goal, plan, ev = setup_plan()
+    result = evaluate_gates(
+        goal,
+        evaluate_objective(goal, ev),
+        plan=plan,
+        registered_at="2026-10-22T00:00:00Z",
+        evidence=ev,
+        as_of=plan["sessions"][-1] + "T01:00:00Z",
+    )
+    assert result["gate_b"]["reason"] == "review_not_due_or_paired_returns_missing"

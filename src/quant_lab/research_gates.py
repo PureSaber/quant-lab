@@ -145,8 +145,10 @@ def validate_plan(plan, objective, *, registered_at=None):
         local_date = at.tz_convert("Asia/Shanghai").date().isoformat()
         if sessions[0] <= local_date or calibration_dates[-1] >= sessions[0]:
             raise ValueError("future sessions must follow registration and calibration")
-        if calibration_dates[-1] > local_date:
-            raise ValueError("calibration cannot use future observations")
+        if calibration_dates[-1] >= local_date:
+            raise ValueError(
+                "daily calibration must precede the registration day; intraday availability is unknown"
+            )
     _stat(values, primary["metric"])
     return plan
 
@@ -224,8 +226,11 @@ def evaluate_gates(
     if evidence.get("evidence_status") != "validated":
         b.update(status="insufficient_evidence", reason="provisional_or_unknown_evidence")
         return result
-    today = pd.Timestamp(as_of or datetime.now(timezone.utc)).date().isoformat()
-    if today < plan["review_date"] or not evidence.get("paired_returns"):
+    clock = pd.Timestamp(as_of or datetime.now(timezone.utc))
+    clock = clock.tz_localize("UTC") if clock.tzinfo is None else clock
+    today = clock.tz_convert("Asia/Shanghai").date().isoformat()
+    last_close = pd.Timestamp(plan["sessions"][-1], tz="Asia/Shanghai") + pd.Timedelta(hours=16)
+    if today < plan["review_date"] or clock < last_close or not evidence.get("paired_returns"):
         b.update(status="insufficient_evidence", reason="review_not_due_or_paired_returns_missing")
         return result
     dates, values = _panel(evidence["paired_returns"])
